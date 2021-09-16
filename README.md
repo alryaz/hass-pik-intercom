@@ -18,11 +18,11 @@ _&#xab;ПИК Домофон&#xbb;_ для _Home Assistant_
 
 <details>
   <summary>Просмотр видеопотока домофона</summary> 
-  <img src="https://raw.githubusercontent.com/alryaz/hass-pik-intercom/main/images/account.png" alt="Скриншот: Информация о лицевом счёте">
+  <img src="https://raw.githubusercontent.com/alryaz/hass-pik-intercom/main/images/camera.png" alt="Скриншот: Просмотр видеопотока домофона">
 </details>
 <details>
   <summary>Открытие двери у домофона</summary> 
-  <img src="https://raw.githubusercontent.com/alryaz/hass-pik-intercom/main/images/last_payment.png" alt="Скриншот: Последний зарегистрированный платёж">
+  <img src="https://raw.githubusercontent.com/alryaz/hass-pik-intercom/main/images/unlockers.png" alt="Скриншот: Открытие двери у домофона">
 </details>
 
 ## Установка
