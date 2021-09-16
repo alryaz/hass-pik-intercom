@@ -1,36 +1,108 @@
+__all__ = (
+    "CONFIG_SCHEMA",
+    "async_setup",
+    "async_setup_entry",
+    "async_unload_entry",
+    "DOMAIN",
+)
+
 import asyncio
 import logging
 import re
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from datetime import timedelta
+from typing import Any, Callable, Dict, Final, List, Mapping, Optional, Tuple
 
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
+from homeassistant.const import CONF_PASSWORD, CONF_SCAN_INTERVAL, CONF_USERNAME
 from homeassistant.core import callback
 from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.typing import ConfigType, HomeAssistantType
 
 import homeassistant.helpers.config_validation as cv
 
 import voluptuous as vol
 
-from custom_components.pik_intercom.api import PikDomofonAPI, PikDomofonException
+from custom_components.pik_intercom.api import (
+    DEFAULT_CLIENT_APP,
+    DEFAULT_CLIENT_OS,
+    DEFAULT_CLIENT_VERSION,
+    DEFAULT_USER_AGENT,
+    PikIntercomAPI,
+    PikIntercomException,
+)
+from custom_components.pik_intercom.const import (
+    CONF_CLIENT_APP,
+    CONF_CLIENT_OS,
+    CONF_CLIENT_VERSION,
+    CONF_REAUTH_INTERVAL,
+    CONF_RETRIEVAL_ERROR_THRESHOLD,
+    CONF_USER_AGENT,
+    DATA_ENTITIES,
+    DATA_FINAL_CONFIG,
+    DATA_REAUTHENTICATORS,
+    DATA_UPDATE_LISTENERS,
+    DATA_YAML_CONFIG,
+    DOMAIN,
+    SUPPORTED_PLATFORMS,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
-DOMAIN = "pik_intercom"
-
-DATA_YAML_CONFIG = DOMAIN + "_yaml_config"
-DATA_ENTITIES = DOMAIN + "_entities"
-DATA_FINAL_CONFIG = DOMAIN + "_final_config"
-DATA_UPDATE_LISTENERS = DOMAIN + "_update_listeners"
-
-SUPPORTED_PLATFORMS = ("camera", "switch")
-
-CONFIG_ENTRY_SCHEMA = vol.Schema(
+SCAN_INTERVAL_SCHEMA: Final = vol.Schema(
     {
-        vol.Required(CONF_USERNAME): cv.string,
+        vol.Optional(
+            "last_call_session",
+            default=timedelta(seconds=300),
+        ): cv.positive_time_period,
+    }
+)
+
+
+def _phone_validator(phone_number: str) -> str:
+    phone_number = re.sub(r"\D", "", phone_number)
+
+    if len(phone_number) == 10:
+        return "+7" + phone_number
+
+    elif len(phone_number) == 11:
+        if phone_number.startswith("8"):
+            return "+7" + phone_number[1:]
+        elif phone_number.startswith("7"):
+            return "+" + phone_number
+        else:
+            raise vol.Invalid("Unknown phone number format detected")
+    else:
+        raise vol.Invalid(
+            f"Irregular phone number length (expected 11, got {len(phone_number)})"
+        )
+
+
+CONFIG_ENTRY_SCHEMA: Final = vol.Schema(
+    {
+        vol.Required(CONF_USERNAME): vol.All(
+            cv.string, vol.Any(_phone_validator, vol.Email)
+        ),
         vol.Required(CONF_PASSWORD): cv.string,
+        vol.Optional(CONF_SCAN_INTERVAL, default=SCAN_INTERVAL_SCHEMA({})): vol.Any(
+            vol.All(
+                cv.positive_time_period,
+                lambda x: {str(k): x for k in SCAN_INTERVAL_SCHEMA.schema.keys()},
+                SCAN_INTERVAL_SCHEMA,
+            ),
+            SCAN_INTERVAL_SCHEMA,
+        ),
+        vol.Optional(CONF_RETRIEVAL_ERROR_THRESHOLD, default=50): vol.All(
+            cv.positive_int, vol.Clamp(min=5)
+        ),
+        vol.Optional(CONF_REAUTH_INTERVAL, default=timedelta(hours=72)): vol.All(
+            cv.positive_time_period, vol.Clamp(min=timedelta(hours=12))
+        ),
+        vol.Optional(CONF_CLIENT_APP, default=DEFAULT_CLIENT_APP): cv.string,
+        vol.Optional(CONF_CLIENT_OS, default=DEFAULT_CLIENT_OS): cv.string,
+        vol.Optional(CONF_CLIENT_VERSION, default=DEFAULT_CLIENT_VERSION): cv.string,
+        vol.Optional(CONF_USER_AGENT, default=DEFAULT_USER_AGENT): cv.string,
     }
 )
 
@@ -63,7 +135,7 @@ def _unique_entries(value: List[Mapping[str, Any]]) -> List[Mapping[str, Any]]:
     return value
 
 
-CONFIG_SCHEMA = vol.Schema(
+CONFIG_SCHEMA: Final = vol.Schema(
     {
         DOMAIN: vol.Any(
             vol.Equal({}),
@@ -156,7 +228,7 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
 async def async_setup_entry(hass: HomeAssistantType, config_entry: ConfigEntry):
     username = config_entry.data[CONF_USERNAME]
     unique_key = username
-    entry_id = config_entry.entry_id
+    config_entry_id = config_entry.entry_id
     log_prefix = f"[{mask_username(username)}] "
     hass_data = hass.data
 
@@ -170,9 +242,9 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: ConfigEntry):
         if not yaml_config or unique_key not in yaml_config:
             _LOGGER.info(
                 log_prefix
-                + f"Удаление записи {entry_id} после удаления из конфигурации YAML"
+                + f"Удаление записи {config_entry_id} после удаления из конфигурации YAML"
             )
-            hass.async_create_task(hass.config_entries.async_remove(entry_id))
+            hass.async_create_task(hass.config_entries.async_remove(config_entry_id))
             return False
 
         user_cfg = yaml_config[unique_key]
@@ -194,19 +266,29 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: ConfigEntry):
 
     _LOGGER.info(log_prefix + "Применение конфигурационной записи")
 
-    try:
-        api_object = PikDomofonAPI(
-            username=username,
-            password=user_cfg[CONF_PASSWORD],
-        )
+    device_id = config_entry.entry_id[-16:]
 
+    _LOGGER.debug(log_prefix + f"Используемый device_id: {device_id}")
+
+    api_object = PikIntercomAPI(
+        username=username,
+        password=user_cfg[CONF_PASSWORD],
+        device_id=device_id,
+        client_app=user_cfg[CONF_CLIENT_APP],
+        client_os=user_cfg[CONF_CLIENT_OS],
+        client_version=user_cfg[CONF_CLIENT_VERSION],
+        user_agent=user_cfg[CONF_USER_AGENT],
+    )
+
+    try:
         await api_object.async_authenticate()
 
         # Fetch all properties
         await api_object.async_update_properties()
 
-    except PikDomofonException as e:
+    except PikIntercomException as e:
         _LOGGER.error(log_prefix + "Невозможно выполнить авторизацию" + ": " + repr(e))
+        await api_object.async_close()
         raise ConfigEntryNotReady
 
     apartments = api_object.apartments
@@ -214,6 +296,7 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: ConfigEntry):
     if not apartments:
         # Cancel setup because no accounts provided
         _LOGGER.warning(log_prefix + "Владения найдены")
+        await api_object.async_close()
         return False
 
     tasks = []
@@ -229,16 +312,17 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: ConfigEntry):
         first_task = next(iter(done))
         exc_first_task = first_task.exception()
         if exc_first_task:
+            await api_object.async_close()
             raise ConfigEntryNotReady(f"Ошибка при обновлении данных: {exc_first_task}")
 
     _LOGGER.debug(log_prefix + f"Найдено {len(apartments)} владений")
 
-    api_objects: Dict[str, "PikDomofonAPI"] = hass_data.setdefault(DOMAIN, {})
+    api_objects: Dict[str, "PikIntercomAPI"] = hass_data.setdefault(DOMAIN, {})
 
     # Create placeholders
-    api_objects[entry_id] = api_object
-    hass_data.setdefault(DATA_ENTITIES, {})[entry_id] = []
-    hass_data.setdefault(DATA_FINAL_CONFIG, {})[entry_id] = user_cfg
+    api_objects[config_entry_id] = api_object
+    hass_data.setdefault(DATA_ENTITIES, {})[config_entry_id] = []
+    hass_data.setdefault(DATA_FINAL_CONFIG, {})[config_entry_id] = user_cfg
 
     # Forward entry setup to sensor platform
     for domain in SUPPORTED_PLATFORMS:
@@ -251,7 +335,21 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: ConfigEntry):
 
     # Create options update listener
     update_listener = config_entry.add_update_listener(async_reload_entry)
-    hass_data.setdefault(DATA_UPDATE_LISTENERS, {})[entry_id] = update_listener
+    hass_data.setdefault(DATA_UPDATE_LISTENERS, {})[config_entry_id] = update_listener
+
+    # Create reauth listener
+    async def async_reauthenticate(*_):
+        _LOGGER.debug(log_prefix + "Выполнение профилактической реавторизации")
+
+        await api_object.async_authenticate()
+
+    hass.data.setdefault(DATA_REAUTHENTICATORS, {})[
+        config_entry_id
+    ] = async_track_time_interval(
+        hass,
+        async_reauthenticate,
+        timedelta(days=1),
+    )
 
     _LOGGER.debug(log_prefix + "Применение конфигурации успешно")
     return True
@@ -279,9 +377,15 @@ async def async_unload_entry(hass: HomeAssistantType, config_entry: ConfigEntry)
     unload_ok = all(await asyncio.gather(*tasks))
 
     if unload_ok:
-        api_object: PikDomofonAPI = hass.data[DOMAIN].pop(entry_id)
+        api_object: PikIntercomAPI = hass.data.get(DOMAIN, {}).pop(entry_id, None)
         if api_object:
             await api_object.async_close()
+
+        reauthenticator: Callable = hass.data.get(DATA_REAUTHENTICATORS, {}).pop(
+            entry_id, None
+        )
+        if reauthenticator:
+            reauthenticator()
 
         hass.data[DATA_FINAL_CONFIG].pop(entry_id)
 
