@@ -1,0 +1,20 @@
+{
+    "config": {
+        "error": {
+            "authentication_error": "Authentication error! This might be due to bad credentials or server connectivity issues\"",
+            "api_load_error": "API loading error. Please, report this to the developer as soon as possible!",
+            "empty_account": "Account does not have any properties available"
+        },
+        "step": {
+            "user": {
+                "data": {
+                    "username": "Username",
+                    "password": "Password"
+                },
+                "description": "Enter credentials for the PIK Intercom application.",
+                "title": "Authorization"
+            }
+        }
+    },
+    "title": "PIK Intercom"
+}

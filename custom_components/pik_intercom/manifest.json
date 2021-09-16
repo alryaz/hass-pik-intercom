@@ -1,0 +1,12 @@
+{
+    "domain": "pik_intercom",
+    "name": "PIK Intercom / ПИК Домофон",
+    "documentation": "https://github.com/alryaz/hass-pik-domofon",
+    "issue_tracker": "https://github.com/alryaz/hass-pik-domofon/issues",
+    "dependencies": [],
+    "version": "0.0.1",
+    "codeowners": ["@alryaz"],
+    "requirements": [],
+    "config_flow": true,
+    "iot_class": "cloud_polling"
+}
