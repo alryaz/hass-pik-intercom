@@ -93,7 +93,6 @@ class PikIntercomUnlockerSwitch(BasePikIntercomEntity, SwitchEntity):
             "entrance": intercom_device.entrance,
             # "sip_account": intercom_device.sip_account,
             # "can_address": intercom_device.can_address,
-            "face_detection": intercom_device.face_detection,
         }
 
     @property

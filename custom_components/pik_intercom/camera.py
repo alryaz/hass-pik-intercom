@@ -1,7 +1,7 @@
 """This component provides basic support for Pik Domofon IP intercoms."""
 import asyncio
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Mapping, Optional
 
 from homeassistant.components.camera import Camera, SUPPORT_STREAM
 from homeassistant.helpers.typing import HomeAssistantType
@@ -105,6 +105,21 @@ class PikIntercomCamera(BasePikIntercomEntity, Camera):
             "manufacturer": intercom_device.device_category,
             "model": intercom_device.kind + " / " + intercom_device.mode,
             "identifiers": {(DOMAIN, intercom_device.id)},
+        }
+
+    @property
+    def device_state_attributes(self) -> Mapping[str, Any]:
+        intercom_device = self._intercom_device
+        intercom_streams = intercom_device.video
+        return {
+            "photo_url": intercom_device.photo_url,
+            "stream_url": intercom_device.stream_url,
+            "all_stream_urls": [
+                {"quality": key, "source": value}
+                for key in (intercom_streams.keys() if intercom_streams else ())
+                for value in intercom_streams.getall(key)
+            ],
+            "face_detection": intercom_device.face_detection,
         }
 
     def turn_off(self) -> None:
