@@ -4,7 +4,7 @@
     "documentation": "https://github.com/alryaz/hass-pik-domofon",
     "issue_tracker": "https://github.com/alryaz/hass-pik-domofon/issues",
     "dependencies": [],
-    "version": "0.0.3",
+    "version": "0.0.4",
     "codeowners": ["@alryaz"],
     "requirements": [],
     "config_flow": true,
