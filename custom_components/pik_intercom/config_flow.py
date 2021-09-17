@@ -119,7 +119,10 @@ class PikIntercomConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_create_entry(
             title=self._make_entry_title(username),
-            data=user_input,
+            data={
+                CONF_USERNAME: username,
+                CONF_PASSWORD: user_input[CONF_PASSWORD],
+            },
         )
 
     async def async_step_import(

@@ -289,7 +289,7 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: ConfigEntry):
     except PikIntercomException as e:
         _LOGGER.error(log_prefix + "Невозможно выполнить авторизацию" + ": " + repr(e))
         await api_object.async_close()
-        raise ConfigEntryNotReady
+        raise ConfigEntryNotReady(f"{e}")
 
     apartments = api_object.apartments
 
