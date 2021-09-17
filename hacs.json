@@ -1,0 +1,14 @@
+{
+    "name": "ПИК Домофон / PIK Intercom",
+    "content_in_root": false,
+    "zip_release": false,
+    "render_readme": true,
+    "domains": [
+        "camera",
+        "sensor",
+        "switch"
+    ],
+    "country": "ru",
+    "homeassistant": "2021.4.6",
+    "iot_class": "Cloud Polling"
+}
