@@ -8,13 +8,12 @@ from typing import Any, Dict, Mapping, Optional
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.const import ATTR_ENTITY_ID, SERVICE_TURN_OFF
-from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.typing import HomeAssistantType
 
-from custom_components.pik_intercom.const import DOMAIN
 from custom_components.pik_intercom._base import BasePikIntercomEntity
-from custom_components.pik_intercom.api import PikIntercomDevice, PikIntercomAPI
+from custom_components.pik_intercom.api import PikIntercomAPI, PikIntercomDevice
+from custom_components.pik_intercom.const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -25,6 +24,8 @@ async def async_setup_entry(
     """Add a Pik Domofon IP intercom from a config entry."""
 
     config_entry_id = config_entry.entry_id
+
+    _LOGGER.debug(f"Setting up 'switch' platform for entry {config_entry_id}")
 
     api: PikIntercomAPI = hass.data[DOMAIN][config_entry_id]
 

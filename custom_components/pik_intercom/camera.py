@@ -30,6 +30,8 @@ async def async_setup_entry(
 
     config_entry_id = config_entry.entry_id
 
+    _LOGGER.debug(f"Setting up 'camera' platform for entry {config_entry_id}")
+
     api: PikIntercomAPI = hass.data[DOMAIN][config_entry_id]
 
     async_add_entities(

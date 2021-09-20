@@ -9,20 +9,25 @@ from homeassistant.const import CONF_SCAN_INTERVAL
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.typing import HomeAssistantType
 
-from custom_components.pik_intercom.const import DATA_FINAL_CONFIG
 from custom_components.pik_intercom._base import BasePikIntercomEntity
+from custom_components.pik_intercom.const import DATA_FINAL_CONFIG
 
 _LOGGER = logging.getLogger(__name__)
 
 
+# noinspection PyUnusedLocal
 async def async_setup_entry(
     hass: HomeAssistantType, config_entry, async_add_entities
 ) -> bool:
     """Add a Pik Intercom sensors based on a config entry."""
 
+    config_entry_id = config_entry.entry_id
+
+    _LOGGER.debug(f"Setting up 'sensor' platform for entry {config_entry_id}")
+
     async_add_entities(
         [
-            PikIntercomLastCallSessionSensor(config_entry.entry_id),
+            PikIntercomLastCallSessionSensor(config_entry_id),
         ],
         True,
     )
