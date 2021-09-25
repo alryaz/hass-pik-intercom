@@ -11,8 +11,8 @@ from homeassistant.const import ATTR_ENTITY_ID, SERVICE_TURN_OFF
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.typing import HomeAssistantType
 
-from custom_components.pik_intercom._base import BasePikIntercomEntity
-from custom_components.pik_intercom.api import PikIntercomAPI, PikIntercomDevice
+from custom_components.pik_intercom._base import BasePikIntercomDeviceEntity
+from custom_components.pik_intercom.api import PikIntercomAPI
 from custom_components.pik_intercom.const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -33,22 +33,19 @@ async def async_setup_entry(
         [
             PikIntercomUnlockerSwitch(config_entry_id, intercom_device)
             for intercom_device in api.devices.values()
-        ]
+        ],
+        False,
     )
 
     return True
 
 
-class PikIntercomUnlockerSwitch(BasePikIntercomEntity, SwitchEntity):
-    def __init__(
-        self, config_entry_id: str, intercom_device: PikIntercomDevice
-    ) -> None:
-        BasePikIntercomEntity.__init__(self, config_entry_id)
+class PikIntercomUnlockerSwitch(BasePikIntercomDeviceEntity, SwitchEntity):
+    def __init__(self, *args, **kwargs) -> None:
+        BasePikIntercomDeviceEntity.__init__(self, *args, **kwargs)
         SwitchEntity.__init__(self)
 
-        self.entity_id = f"switch.{intercom_device.id}_unlocker"
-
-        self._intercom_device = intercom_device
+        self.entity_id = f"switch.{self._intercom_device.id}_unlocker"
         self._turn_off_waiter = None
 
     @property

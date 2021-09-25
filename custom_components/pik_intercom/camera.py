@@ -1,17 +1,14 @@
 """This component provides basic support for Pik Domofon IP intercoms."""
 import asyncio
 import logging
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Callable, Dict, Mapping, Optional
 
+from homeassistant.components import ffmpeg
 from homeassistant.components.camera import Camera, SUPPORT_STREAM
 from homeassistant.helpers.typing import HomeAssistantType
 
-from custom_components.pik_intercom._base import BasePikIntercomEntity
-from custom_components.pik_intercom.api import (
-    PikIntercomAPI,
-    PikIntercomException,
-    PikIntercomDevice,
-)
+from custom_components.pik_intercom._base import BasePikIntercomDeviceEntity
+from custom_components.pik_intercom.api import PikIntercomAPI, PikIntercomException
 from custom_components.pik_intercom.const import (
     CONF_RETRIEVAL_ERROR_THRESHOLD,
     DATA_FINAL_CONFIG,
@@ -36,29 +33,29 @@ async def async_setup_entry(
 
     async_add_entities(
         [
-            PikIntercomCamera(config_entry_id, intercom_device)
+            PikIntercomCamera(hass, config_entry_id, intercom_device)
             for intercom_device in api.devices.values()
             if intercom_device.has_camera
-        ]
+        ],
+        False,
     )
 
     return True
 
 
-class PikIntercomCamera(BasePikIntercomEntity, Camera):
+class PikIntercomCamera(BasePikIntercomDeviceEntity, Camera):
     """An implementation of a Pik Domofon IP intercom."""
 
-    def __init__(
-        self, config_entry_id: str, intercom_device: PikIntercomDevice
-    ) -> None:
+    def __init__(self, hass: HomeAssistantType, *args, **kwargs) -> None:
         """Initialize the Pik Domofon intercom video stream."""
-        BasePikIntercomEntity.__init__(self, config_entry_id)
+        BasePikIntercomDeviceEntity.__init__(self, *args, **kwargs)
         Camera.__init__(self)
 
-        self.entity_id = f"switch.{intercom_device.id}_camera"
+        self.entity_id = f"switch.{self._intercom_device.id}_camera"
 
-        self._intercom_device = intercom_device
         self._failed_retrieval_counter = 0
+        self._entity_updater: Optional[Callable] = None
+        self._ffmpeg = hass.data[ffmpeg.DATA_FFMPEG]
 
     @property
     def retrieval_error_threshold(self) -> int:
@@ -144,18 +141,31 @@ class PikIntercomCamera(BasePikIntercomEntity, Camera):
             self.hass.loop,
         ).result()
 
-    async def async_update(self) -> None:
-        await self.api_object.async_update_property_intercoms(
-            self._intercom_device.property_id
-        )
-
     async def async_camera_image(
         self, width: Optional[int] = None, height: Optional[int] = None
     ) -> Optional[bytes]:
         """Return a still image response from the camera."""
         # Send the request to snap a picture and return raw jpg data
+        intercom_device = self._intercom_device
+        if not intercom_device.photo_url:
+            stream_url = intercom_device.stream_url
+            if stream_url:
+                _LOGGER.debug(f"[{self.entity_id}] Fetching snapshot from video feed")
+                snapshot_image = await ffmpeg.async_get_image(
+                    self.hass, stream_url, width=width, height=height
+                )
+                if snapshot_image is None:
+                    _LOGGER.warning(
+                        f"[{self.entity_id}] Video source did not provide any image"
+                    )
+                    return None
+                _LOGGER.debug(f"[{self.entity_id}] Retrieved snapshot from video feed")
+                return snapshot_image
+            _LOGGER.warning(f"[{self.entity_id}] No video source available")
+            return None
+
         try:
-            snapshot_image = await self._intercom_device.async_get_snapshot()
+            snapshot_image = await intercom_device.async_get_snapshot()
 
         except PikIntercomException as error:
             self._failed_retrieval_counter += 1
@@ -165,7 +175,9 @@ class PikIntercomCamera(BasePikIntercomEntity, Camera):
 
             if failed_retrieval_counter < retrieval_error_threshold:
                 _LOGGER.error(
-                    f"Error ({failed_retrieval_counter}/{retrieval_error_threshold}): {error}"
+                    f"[{self.entity_id}] Error "
+                    f"({failed_retrieval_counter}/{retrieval_error_threshold}): "
+                    f"{error}"
                 )
                 return None
 
@@ -175,11 +187,12 @@ class PikIntercomCamera(BasePikIntercomEntity, Camera):
 
         self._failed_retrieval_counter = 0
         _LOGGER.error(
-            f"Retrieval error threshold ({retrieval_error_threshold}) reached. "
+            f"[{self.entity_id}] Retrieval error threshold "
+            f"({retrieval_error_threshold}) reached. "
             f"Attempting data update to refresh URLs"
         )
         await self.api_object.async_update_property_intercoms(
-            self._intercom_device.property_id
+            intercom_device.property_id
         )
 
     async def stream_source(self) -> Optional[str]:

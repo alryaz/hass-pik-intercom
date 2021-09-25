@@ -3,9 +3,13 @@
     "name": "PIK Intercom / ПИК Домофон",
     "documentation": "https://github.com/alryaz/hass-pik-domofon",
     "issue_tracker": "https://github.com/alryaz/hass-pik-domofon/issues",
-    "dependencies": [],
+    "dependencies": [
+        "ffmpeg"
+    ],
     "version": "0.0.4",
-    "codeowners": ["@alryaz"],
+    "codeowners": [
+        "@alryaz"
+    ],
     "requirements": [],
     "config_flow": true,
     "iot_class": "cloud_polling"

@@ -5,12 +5,12 @@ __all__ = ("async_setup_entry", "PikIntercomLastCallSessionSensor")
 import logging
 from typing import Any, Callable, Mapping, Optional
 
-from homeassistant.const import CONF_SCAN_INTERVAL
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.const import DEVICE_CLASS_TIMESTAMP
 from homeassistant.helpers.typing import HomeAssistantType
 
+from custom_components.pik_intercom.const import DOMAIN, UPDATE_CONFIG_KEY_CALL_SESSIONS
+from custom_components.pik_intercom.api import PikIntercomAPI
 from custom_components.pik_intercom._base import BasePikIntercomEntity
-from custom_components.pik_intercom.const import DATA_FINAL_CONFIG
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -25,23 +25,38 @@ async def async_setup_entry(
 
     _LOGGER.debug(f"Setting up 'sensor' platform for entry {config_entry_id}")
 
+    api_object: PikIntercomAPI = hass.data[DOMAIN][config_entry_id]
+
+    await api_object.async_update_call_sessions(1)
+
     async_add_entities(
         [
             PikIntercomLastCallSessionSensor(config_entry_id),
         ],
-        True,
+        False,
     )
 
     return True
 
 
 class PikIntercomLastCallSessionSensor(BasePikIntercomEntity):
+    async def async_update_internal(self) -> None:
+        await self.api_object.async_update_call_sessions(1)
+
     def __init__(self, config_entry_id: str) -> None:
         """Initialize the Pik Domofon intercom video stream."""
         super().__init__(config_entry_id)
 
         self.entity_id = f"sensor.last_call_session"
         self._entity_updater: Optional[Callable] = None
+
+    @property
+    def update_identifier(self) -> str:
+        return self._config_entry_id
+
+    @property
+    def update_config_key(self) -> str:
+        return UPDATE_CONFIG_KEY_CALL_SESSIONS
 
     @property
     def state(self) -> Optional[str]:
@@ -52,30 +67,6 @@ class PikIntercomLastCallSessionSensor(BasePikIntercomEntity):
 
         return last_call_session.updated_at.isoformat()
 
-    async def async_added_to_hass(self) -> None:
-        await super().async_added_to_hass()
-
-        time_interval = self.hass.data[DATA_FINAL_CONFIG][self._config_entry_id][
-            CONF_SCAN_INTERVAL
-        ]["last_call_session"]
-
-        _LOGGER.debug(
-            f"Scheduling last_call_session entity updater "
-            f"with {time_interval.total_seconds()} interval"
-        )
-        self._entity_updater = async_track_time_interval(
-            self.hass,
-            lambda *args: self.async_schedule_update_ha_state(True),
-            time_interval,
-        )
-
-    async def async_will_remove_from_hass(self) -> None:
-        await super().async_will_remove_from_hass()
-
-        if self._entity_updater:
-            _LOGGER.debug("Cancelling last_call_session entity updater")
-            self._entity_updater()
-
     @property
     def available(self) -> bool:
         return self.api_object.last_call_session is not None
@@ -83,6 +74,10 @@ class PikIntercomLastCallSessionSensor(BasePikIntercomEntity):
     @property
     def icon(self) -> str:
         return "mdi:phone"
+
+    @property
+    def name(self) -> str:
+        return "Last Call Session"
 
     @property
     def device_state_attributes(self) -> Optional[Mapping[str, Any]]:
@@ -115,5 +110,6 @@ class PikIntercomLastCallSessionSensor(BasePikIntercomEntity):
             ),
         }
 
-    async def async_update(self) -> None:
-        await self.api_object.async_update_call_sessions()
+    @property
+    def device_class(self) -> str:
+        return DEVICE_CLASS_TIMESTAMP

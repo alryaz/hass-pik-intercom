@@ -14,7 +14,12 @@ from typing import Any, Callable, Dict, Final, List, Mapping, Optional, Tuple
 
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_PASSWORD, CONF_SCAN_INTERVAL, CONF_USERNAME
+from homeassistant.const import (
+    CONF_DEVICE_ID,
+    CONF_PASSWORD,
+    CONF_SCAN_INTERVAL,
+    CONF_USERNAME,
+)
 from homeassistant.core import callback
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.event import async_track_time_interval
@@ -40,12 +45,15 @@ from custom_components.pik_intercom.const import (
     CONF_RETRIEVAL_ERROR_THRESHOLD,
     CONF_USER_AGENT,
     DATA_ENTITIES,
+    DATA_ENTITY_UPDATERS,
     DATA_FINAL_CONFIG,
     DATA_REAUTHENTICATORS,
     DATA_UPDATE_LISTENERS,
     DATA_YAML_CONFIG,
     DOMAIN,
     SUPPORTED_PLATFORMS,
+    UPDATE_CONFIG_KEY_CALL_SESSIONS,
+    UPDATE_CONFIG_KEY_INTERCOMS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -53,8 +61,12 @@ _LOGGER = logging.getLogger(__name__)
 SCAN_INTERVAL_SCHEMA: Final = vol.Schema(
     {
         vol.Optional(
-            "last_call_session",
+            UPDATE_CONFIG_KEY_CALL_SESSIONS,
             default=timedelta(seconds=300),
+        ): cv.positive_time_period,
+        vol.Optional(
+            UPDATE_CONFIG_KEY_INTERCOMS,
+            default=timedelta(minutes=30),
         ): cv.positive_time_period,
     }
 )
@@ -103,6 +115,7 @@ CONFIG_ENTRY_SCHEMA: Final = vol.Schema(
         vol.Optional(CONF_CLIENT_OS, default=DEFAULT_CLIENT_OS): cv.string,
         vol.Optional(CONF_CLIENT_VERSION, default=DEFAULT_CLIENT_VERSION): cv.string,
         vol.Optional(CONF_USER_AGENT, default=DEFAULT_USER_AGENT): cv.string,
+        vol.Optional(CONF_DEVICE_ID, default=None): vol.Any(vol.Equal(None), cv.string),
     }
 )
 
@@ -266,9 +279,17 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: ConfigEntry):
 
     _LOGGER.info(log_prefix + "Применение конфигурационной записи")
 
-    device_id = config_entry.entry_id[-16:]
+    device_id = user_cfg.get(CONF_DEVICE_ID)
+    if not device_id:
+        device_id = config_entry.entry_id[-16:]
+        user_cfg[CONF_DEVICE_ID] = device_id
+        used_device_id_source = "полученный из ID записи"
+    else:
+        used_device_id_source = "заданный пользователем"
 
-    _LOGGER.debug(log_prefix + f"Используемый device_id: {device_id}")
+    _LOGGER.debug(
+        log_prefix + f"Используемый device_id: {device_id} ({used_device_id_source})"
+    )
 
     api_object = PikIntercomAPI(
         username=username,
@@ -287,7 +308,7 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: ConfigEntry):
         await api_object.async_update_properties()
 
     except PikIntercomException as e:
-        _LOGGER.error(log_prefix + "Невозможно выполнить авторизацию" + ": " + repr(e))
+        _LOGGER.error(log_prefix + "Невозможно выполнить авторизацию: " + repr(e))
         await api_object.async_close()
         raise ConfigEntryNotReady(f"{e}")
 
@@ -321,8 +342,9 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: ConfigEntry):
 
     # Create placeholders
     api_objects[config_entry_id] = api_object
-    hass_data.setdefault(DATA_ENTITIES, {})[config_entry_id] = []
+    hass_data.setdefault(DATA_ENTITIES, {})[config_entry_id] = {}
     hass_data.setdefault(DATA_FINAL_CONFIG, {})[config_entry_id] = user_cfg
+    hass_data.setdefault(DATA_ENTITY_UPDATERS, {})[config_entry_id] = {}
 
     # Forward entry setup to sensor platform
     for domain in SUPPORTED_PLATFORMS:
@@ -377,20 +399,33 @@ async def async_unload_entry(hass: HomeAssistantType, config_entry: ConfigEntry)
     unload_ok = all(await asyncio.gather(*tasks))
 
     if unload_ok:
-        api_object: PikIntercomAPI = hass.data.get(DOMAIN, {}).pop(entry_id, None)
-        if api_object:
-            await api_object.async_close()
+        # Cancel entity updaters
+        for update_identifier, (cancel_func, _) in (
+            hass.data[DATA_ENTITY_UPDATERS].pop(entry_id).items()
+        ):
+            cancel_func()
 
+        # Cancel reauthentication routines
         reauthenticator: Callable = hass.data.get(DATA_REAUTHENTICATORS, {}).pop(
             entry_id, None
         )
         if reauthenticator:
             reauthenticator()
 
-        hass.data[DATA_FINAL_CONFIG].pop(entry_id)
-
+        # Cancel entry update listeners
         cancel_listener = hass.data[DATA_UPDATE_LISTENERS].pop(entry_id)
         cancel_listener()
+
+        # Close API object
+        api_object: PikIntercomAPI = hass.data.get(DOMAIN, {}).pop(entry_id, None)
+        if api_object:
+            await api_object.async_close()
+
+        # Remove final configuration holder
+        hass.data[DATA_FINAL_CONFIG].pop(entry_id)
+
+        # Remove entity holder
+        hass.data[DATA_ENTITIES].pop(entry_id)
 
         _LOGGER.info(log_prefix + "Интеграция выгружена")
 

@@ -90,6 +90,10 @@ class PikIntercomAPI:
         await self._session.__aexit__(*args)
 
     @property
+    def username(self) -> str:
+        return self._username
+
+    @property
     def device_id(self) -> str:
         return self._session.headers["device-client-uid"]
 
@@ -429,19 +433,21 @@ class PikIntercomAPI:
         except StopIteration:
             return None
 
-    async def async_update_call_sessions(self) -> None:
+    async def async_update_call_sessions(self, max_pages: Optional[int] = 10) -> None:
         sub_url = "/api/call_sessions"
         call_sessions = self._call_sessions
         page_number = 0
         last_call_session = self.last_call_session
         requires_further_updates = True
 
-        while requires_further_updates:
+        while requires_further_updates and (
+            max_pages is None or page_number < max_pages
+        ):
             page_number += 1
 
             resp_data, headers, request_counter = await self._async_get(
                 sub_url,
-                title="property intercoms fetching",
+                title=f"call sessions fetching (page {page_number})",
                 authenticated=True,
                 params={"page": page_number},
             )
