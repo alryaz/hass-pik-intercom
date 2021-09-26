@@ -1,8 +1,8 @@
 {
     "domain": "pik_intercom",
     "name": "PIK Intercom / ПИК Домофон",
-    "documentation": "https://github.com/alryaz/hass-pik-domofon",
-    "issue_tracker": "https://github.com/alryaz/hass-pik-domofon/issues",
+    "documentation": "https://github.com/alryaz/hass-pik-intercom",
+    "issue_tracker": "https://github.com/alryaz/hass-pik-intercom/issues",
     "dependencies": [
         "ffmpeg"
     ],
