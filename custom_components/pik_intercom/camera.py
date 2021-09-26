@@ -1,7 +1,7 @@
 """This component provides basic support for Pik Domofon IP intercoms."""
 import asyncio
 import logging
-from typing import Any, Callable, Dict, Mapping, Optional
+from typing import Any, Callable, Mapping, Optional
 
 from homeassistant.components import ffmpeg
 from homeassistant.components.camera import Camera, SUPPORT_STREAM
@@ -9,25 +9,19 @@ from homeassistant.helpers.typing import HomeAssistantType
 
 from custom_components.pik_intercom._base import BasePikIntercomDeviceEntity
 from custom_components.pik_intercom.api import PikIntercomAPI, PikIntercomException
-from custom_components.pik_intercom.const import (
-    CONF_RETRIEVAL_ERROR_THRESHOLD,
-    DATA_FINAL_CONFIG,
-    DOMAIN,
-)
+from custom_components.pik_intercom.const import DOMAIN
 
 __all__ = ("async_setup_entry", "PikIntercomCamera")
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
 
-async def async_setup_entry(
-    hass: HomeAssistantType, config_entry, async_add_entities
-) -> bool:
+async def async_setup_entry(hass: HomeAssistantType, config_entry, async_add_entities) -> bool:
     """Add a Dahua IP camera from a config entry."""
 
     config_entry_id = config_entry.entry_id
 
-    _LOGGER.debug(f"Setting up 'camera' platform for entry {config_entry_id}")
+    _LOGGER.debug(f"[{config_entry_id}] Настройка платформы 'camera'")
 
     api: PikIntercomAPI = hass.data[DOMAIN][config_entry_id]
 
@@ -37,7 +31,7 @@ async def async_setup_entry(
             for intercom_device in api.devices.values()
             if intercom_device.has_camera
         ],
-        False,
+        True,
     )
 
     return True
@@ -48,23 +42,14 @@ class PikIntercomCamera(BasePikIntercomDeviceEntity, Camera):
 
     def __init__(self, hass: HomeAssistantType, *args, **kwargs) -> None:
         """Initialize the Pik Domofon intercom video stream."""
-        BasePikIntercomDeviceEntity.__init__(self, *args, **kwargs)
+        BasePikIntercomDeviceEntity.__init__(self, hass, *args, **kwargs)
         Camera.__init__(self)
 
         self.entity_id = f"switch.{self._intercom_device.id}_camera"
 
-        self._failed_retrieval_counter = 0
         self._entity_updater: Optional[Callable] = None
         self._ffmpeg = hass.data[ffmpeg.DATA_FFMPEG]
-
-    @property
-    def retrieval_error_threshold(self) -> int:
-        return max(
-            self.hass.data[DATA_FINAL_CONFIG][self._config_entry_id][
-                CONF_RETRIEVAL_ERROR_THRESHOLD
-            ],
-            5,
-        )
+        self._requires_tcp_transport: Optional[bool] = None
 
     @property
     def icon(self) -> str:
@@ -74,7 +59,7 @@ class PikIntercomCamera(BasePikIntercomDeviceEntity, Camera):
     def unique_id(self):
         """Return the entity unique ID."""
         intercom_device = self._intercom_device
-        return f"intercom_camera_{intercom_device.property_id}_{intercom_device.id}"
+        return f"intercom_camera_{intercom_device.id}"
 
     @property
     def supported_features(self) -> int:
@@ -90,21 +75,7 @@ class PikIntercomCamera(BasePikIntercomDeviceEntity, Camera):
     def name(self):
         """Return the name of this camera."""
         intercom_device = self._intercom_device
-        return (
-            intercom_device.renamed_name
-            or intercom_device.human_name
-            or intercom_device.name
-        )
-
-    @property
-    def device_info(self) -> Dict[str, Any]:
-        intercom_device = self._intercom_device
-        return {
-            "name": intercom_device.name,
-            "manufacturer": intercom_device.device_category,
-            "model": intercom_device.kind + " / " + intercom_device.mode,
-            "identifiers": {(DOMAIN, intercom_device.id)},
-        }
+        return intercom_device.renamed_name or intercom_device.human_name or intercom_device.name
 
     @property
     def device_state_attributes(self) -> Mapping[str, Any]:
@@ -141,59 +112,78 @@ class PikIntercomCamera(BasePikIntercomDeviceEntity, Camera):
             self.hass.loop,
         ).result()
 
+    async def async_get_snapshot_by_ffmpeg(
+        self,
+        width: Optional[int] = None,
+        height: Optional[int] = None,
+        force_tcp: Optional[bool] = None,
+    ) -> Optional[bytes]:
+        if force_tcp is None:
+            force_tcp = self._requires_tcp_transport
+        if force_tcp is True:
+            return await ffmpeg.async_get_image(
+                self.hass,
+                self._intercom_device.stream_url,
+                extra_cmd="-input_rtsp_transport tcp",
+                width=width,
+                height=height,
+            )
+        if force_tcp is False:
+            return await ffmpeg.async_get_image(
+                self.hass,
+                self._intercom_device.stream_url,
+                width=width,
+                height=height,
+            )
+        if force_tcp is None:
+            camera_image = await self.async_get_snapshot_by_ffmpeg(width, height, False)
+            if camera_image:
+                _LOGGER.debug(
+                    f"[{self._config_entry_id}] Объект {self.entity_id} "
+                    f"не требует передачу видео по протоколу TCP"
+                )
+                self._requires_tcp_transport = False
+                return camera_image
+            camera_image = await self.async_get_snapshot_by_ffmpeg(width, height, True)
+            if camera_image:
+                _LOGGER.debug(
+                    f"[{self._config_entry_id}] Объект {self.entity_id} "
+                    f"требует передачу видео по протоколу TCP"
+                )
+                self._requires_tcp_transport = True
+                return camera_image
+
     async def async_camera_image(
         self, width: Optional[int] = None, height: Optional[int] = None
     ) -> Optional[bytes]:
         """Return a still image response from the camera."""
-        # Send the request to snap a picture and return raw jpg data
         intercom_device = self._intercom_device
-        if not intercom_device.photo_url:
-            stream_url = intercom_device.stream_url
-            if stream_url:
-                _LOGGER.debug(f"[{self.entity_id}] Fetching snapshot from video feed")
-                snapshot_image = await ffmpeg.async_get_image(
-                    self.hass, stream_url, width=width, height=height
-                )
-                if snapshot_image is None:
-                    _LOGGER.warning(
-                        f"[{self.entity_id}] Video source did not provide any image"
-                    )
-                    return None
-                _LOGGER.debug(f"[{self.entity_id}] Retrieved snapshot from video feed")
+        log_prefix = f"[{self.entity_id}] "
+
+        # Attempt to retrieve snapshot image using photo URL
+        if intercom_device.photo_url:
+            try:
+                # Send the request to snap a picture and return raw JPEG data
+                snapshot_image = await intercom_device.async_get_snapshot()
+            except PikIntercomException as error:
+                _LOGGER.error(log_prefix + f"Ошибка получения снимка: {error}")
+            else:
                 return snapshot_image
-            _LOGGER.warning(f"[{self.entity_id}] No video source available")
-            return None
 
-        try:
-            snapshot_image = await intercom_device.async_get_snapshot()
+        # Attempt to retrieve snapshot image using RTSP stream
+        stream_url = intercom_device.stream_url
+        if stream_url:
+            snapshot_image = await self.async_get_snapshot_by_ffmpeg(width, height)
 
-        except PikIntercomException as error:
-            self._failed_retrieval_counter += 1
-
-            failed_retrieval_counter = self._failed_retrieval_counter
-            retrieval_error_threshold = self.retrieval_error_threshold
-
-            if failed_retrieval_counter < retrieval_error_threshold:
-                _LOGGER.error(
-                    f"[{self.entity_id}] Error "
-                    f"({failed_retrieval_counter}/{retrieval_error_threshold}): "
-                    f"{error}"
-                )
+            if not snapshot_image:
+                _LOGGER.warning(log_prefix + "Видеопоток не содержит изображение")
                 return None
 
-        else:
-            self._failed_retrieval_counter = 0
             return snapshot_image
 
-        self._failed_retrieval_counter = 0
-        _LOGGER.error(
-            f"[{self.entity_id}] Retrieval error threshold "
-            f"({retrieval_error_threshold}) reached. "
-            f"Attempting data update to refresh URLs"
-        )
-        await self.api_object.async_update_property_intercoms(
-            intercom_device.property_id
-        )
+        # Warn about missing sources
+        _LOGGER.warning(log_prefix + "Отсутствует источник снимков")
+        return None
 
     async def stream_source(self) -> Optional[str]:
         """Return the RTSP stream source."""

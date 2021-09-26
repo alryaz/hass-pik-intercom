@@ -16,5 +16,27 @@
             }
         }
     },
+    "options": {
+        "error": {
+            "auth_update_interval_too_low": "Интервал слишком мал (минимум: {min_auth_update_interval})",
+            "intercoms_update_interval_too_low": "Интервал слишком мал (минимум: {min_intercoms_update_interval})",
+            "call_sessions_update_interval_too_low": "Интервал слишком мал (минимум: {min_call_sessions_update_interval})",
+            "device_id_invalid_characters": "Идентификатор устройства может содержать только буквенно-цифровые латинские символы (a-z, A-Z, 0-9)",
+            "device_id_too_short": "Минимальная длина идентификатора — {min_device_id_length} символов"
+        },
+        "abort": {
+            "yaml_not_supported": "Конфигурация YAML не поддерживается."
+        },
+        "step": {
+            "init": {
+                "data": {
+                    "auth_update_interval": "Интервал обновления авторизации",
+                    "intercoms_update_interval": "Интервал обновления домофонов",
+                    "call_sessions_update_interval": "Интервал обновления вызовов",
+                    "device_id": "Идентификатор устройства"
+                }
+            }
+        }
+    },
     "title": "ПИК Домофон"
 }

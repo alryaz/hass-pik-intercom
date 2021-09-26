@@ -16,5 +16,27 @@
             }
         }
     },
+    "options": {
+        "error": {
+            "auth_update_interval_too_low": "Interval too low (minimum: {min_auth_update_interval})",
+            "intercoms_update_interval_too_low": "Interval too low (minimum: {min_intercoms_update_interval})",
+            "call_sessions_update_interval_too_low": "Interval too low (minimum: {min_call_sessions_update_interval})",
+            "device_id_invalid_characters": "Device identifier may only contain alphanumeric characters (a-z, A-Z, 0-9)",
+            "device_id_too_short": "Minimum device identifier length — {min_device_id_length} symbols"
+        },
+        "abort": {
+            "yaml_not_supported": "YAML configuration not supported."
+        },
+        "step": {
+            "init": {
+                "data": {
+                    "auth_update_interval": "Authentication update interval",
+                    "intercoms_update_interval": "Intercoms update interval",
+                    "call_sessions_update_interval": "Call sessions update interval",
+                    "device_id": "Device identifier"
+                }
+            }
+        }
+    },
     "title": "PIK Intercom"
 }

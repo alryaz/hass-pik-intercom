@@ -12,23 +12,16 @@ import re
 from datetime import timedelta
 from typing import Any, Callable, Dict, Final, List, Mapping, Optional, Tuple
 
-from homeassistant import config_entries
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import (
-    CONF_DEVICE_ID,
-    CONF_PASSWORD,
-    CONF_SCAN_INTERVAL,
-    CONF_USERNAME,
-)
+import voluptuous as vol
+from homeassistant.config_entries import ConfigEntry, SOURCE_IMPORT
+from homeassistant.const import CONF_DEVICE_ID, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import callback
 from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.typing import ConfigType, HomeAssistantType
 
-import homeassistant.helpers.config_validation as cv
-
-import voluptuous as vol
-
+from custom_components.pik_intercom._base import phone_validator
 from custom_components.pik_intercom.api import (
     DEFAULT_CLIENT_APP,
     DEFAULT_CLIENT_OS,
@@ -38,11 +31,13 @@ from custom_components.pik_intercom.api import (
     PikIntercomException,
 )
 from custom_components.pik_intercom.const import (
+    CONF_AUTH_UPDATE_INTERVAL,
+    CONF_CALL_SESSIONS_UPDATE_INTERVAL,
     CONF_CLIENT_APP,
     CONF_CLIENT_OS,
     CONF_CLIENT_VERSION,
+    CONF_INTERCOMS_UPDATE_INTERVAL,
     CONF_REAUTH_INTERVAL,
-    CONF_RETRIEVAL_ERROR_THRESHOLD,
     CONF_USER_AGENT,
     DATA_ENTITIES,
     DATA_ENTITY_UPDATERS,
@@ -50,72 +45,58 @@ from custom_components.pik_intercom.const import (
     DATA_REAUTHENTICATORS,
     DATA_UPDATE_LISTENERS,
     DATA_YAML_CONFIG,
+    DEFAULT_AUTH_UPDATE_INTERVAL,
+    DEFAULT_CALL_SESSIONS_UPDATE_INTERVAL,
+    DEFAULT_INTERCOMS_UPDATE_INTERVAL,
     DOMAIN,
+    MIN_AUTH_UPDATE_INTERVAL,
+    MIN_CALL_SESSIONS_UPDATE_INTERVAL,
+    MIN_DEVICE_ID_LENGTH,
     SUPPORTED_PLATFORMS,
     UPDATE_CONFIG_KEY_CALL_SESSIONS,
     UPDATE_CONFIG_KEY_INTERCOMS,
 )
 
-_LOGGER = logging.getLogger(__name__)
-
-SCAN_INTERVAL_SCHEMA: Final = vol.Schema(
-    {
-        vol.Optional(
-            UPDATE_CONFIG_KEY_CALL_SESSIONS,
-            default=timedelta(seconds=300),
-        ): cv.positive_time_period,
-        vol.Optional(
-            UPDATE_CONFIG_KEY_INTERCOMS,
-            default=timedelta(minutes=30),
-        ): cv.positive_time_period,
-    }
-)
-
-
-def _phone_validator(phone_number: str) -> str:
-    phone_number = re.sub(r"\D", "", phone_number)
-
-    if len(phone_number) == 10:
-        return "+7" + phone_number
-
-    elif len(phone_number) == 11:
-        if phone_number.startswith("8"):
-            return "+7" + phone_number[1:]
-        elif phone_number.startswith("7"):
-            return "+" + phone_number
-        else:
-            raise vol.Invalid("Unknown phone number format detected")
-    else:
-        raise vol.Invalid(
-            f"Irregular phone number length (expected 11, got {len(phone_number)})"
-        )
-
+_LOGGER: Final = logging.getLogger(__name__)
 
 CONFIG_ENTRY_SCHEMA: Final = vol.Schema(
     {
-        vol.Required(CONF_USERNAME): vol.All(
-            cv.string, vol.Any(_phone_validator, vol.Email)
-        ),
+        vol.Required(CONF_USERNAME): vol.All(cv.string, vol.Any(phone_validator, vol.Email)),
         vol.Required(CONF_PASSWORD): cv.string,
-        vol.Optional(CONF_SCAN_INTERVAL, default=SCAN_INTERVAL_SCHEMA({})): vol.Any(
-            vol.All(
-                cv.positive_time_period,
-                lambda x: {str(k): x for k in SCAN_INTERVAL_SCHEMA.schema.keys()},
-                SCAN_INTERVAL_SCHEMA,
-            ),
-            SCAN_INTERVAL_SCHEMA,
+        # Update intervals
+        vol.Optional(
+            CONF_INTERCOMS_UPDATE_INTERVAL,
+            default=timedelta(seconds=DEFAULT_INTERCOMS_UPDATE_INTERVAL),
+            description="Intercoms update interval",
+        ): vol.All(
+            cv.positive_time_period,
+            vol.Clamp(min=timedelta(seconds=MIN_CALL_SESSIONS_UPDATE_INTERVAL)),
         ),
-        vol.Optional(CONF_RETRIEVAL_ERROR_THRESHOLD, default=50): vol.All(
-            cv.positive_int, vol.Clamp(min=5)
+        vol.Optional(
+            CONF_CALL_SESSIONS_UPDATE_INTERVAL,
+            default=timedelta(seconds=DEFAULT_CALL_SESSIONS_UPDATE_INTERVAL),
+            description="Call sessions update interval",
+        ): vol.All(
+            cv.positive_time_period,
+            vol.Clamp(min=timedelta(seconds=MIN_CALL_SESSIONS_UPDATE_INTERVAL)),
         ),
-        vol.Optional(CONF_REAUTH_INTERVAL, default=timedelta(hours=72)): vol.All(
-            cv.positive_time_period, vol.Clamp(min=timedelta(hours=12))
+        vol.Optional(
+            CONF_AUTH_UPDATE_INTERVAL,
+            default=timedelta(seconds=DEFAULT_AUTH_UPDATE_INTERVAL),
+            description="Authentication update interval",
+        ): vol.All(
+            cv.positive_time_period,
+            vol.Clamp(min=timedelta(seconds=MIN_AUTH_UPDATE_INTERVAL)),
         ),
+        # Additional parameters
         vol.Optional(CONF_CLIENT_APP, default=DEFAULT_CLIENT_APP): cv.string,
         vol.Optional(CONF_CLIENT_OS, default=DEFAULT_CLIENT_OS): cv.string,
         vol.Optional(CONF_CLIENT_VERSION, default=DEFAULT_CLIENT_VERSION): cv.string,
         vol.Optional(CONF_USER_AGENT, default=DEFAULT_USER_AGENT): cv.string,
-        vol.Optional(CONF_DEVICE_ID, default=None): vol.Any(vol.Equal(None), cv.string),
+        vol.Optional(CONF_DEVICE_ID, default=None): vol.Any(
+            vol.Equal(None),
+            vol.All(cv.string, vol.Length(min=MIN_DEVICE_ID_LENGTH)),
+        ),
     }
 )
 
@@ -129,14 +110,10 @@ def _unique_entries(value: List[Mapping[str, Any]]) -> List[Mapping[str, Any]]:
         if user in users:
             if users[user] is not None:
                 errors.append(
-                    vol.Invalid(
-                        "duplicate unique key, first encounter", path=[users[user]]
-                    )
+                    vol.Invalid("duplicate unique key, first encounter", path=[users[user]])
                 )
                 users[user] = None
-            errors.append(
-                vol.Invalid("duplicate unique key, subsequent encounter", path=[i])
-            )
+            errors.append(vol.Invalid("duplicate unique key, subsequent encounter", path=[i]))
         else:
             users[user] = i
 
@@ -165,9 +142,7 @@ CONFIG_SCHEMA: Final = vol.Schema(
 
 
 @callback
-def _find_existing_entry(
-    hass: HomeAssistantType, username: str
-) -> Optional[config_entries.ConfigEntry]:
+def _find_existing_entry(hass: HomeAssistantType, username: str) -> Optional[ConfigEntry]:
     existing_entries = hass.config_entries.async_entries(DOMAIN)
     for config_entry in existing_entries:
         if config_entry.data[CONF_USERNAME] == username:
@@ -182,8 +157,46 @@ def mask_username(username: str):
     return "@".join(map(lambda x: _RE_USERNAME_MASK.sub(r"\1\2***\3", x), parts))
 
 
+def _patch_haffmpeg():
+    """Patch HA ffmpeg adapter to put rtsp_transport before input stream when
+    a certain non-existent command line argument (input_rtsp_transport) is provided.
+
+    """
+
+    from haffmpeg.core import HAFFmpeg
+
+    if hasattr(HAFFmpeg, "_orig_generate_ffmpeg_cmd"):
+        return
+
+    HAFFmpeg._orig_generate_ffmpeg_cmd = HAFFmpeg._generate_ffmpeg_cmd
+
+    def _generate_ffmpeg_cmd(self, *args, **kwargs) -> None:
+        """Generate ffmpeg command line (patched to support input_rtsp_transport argument)."""
+        self._orig_generate_ffmpeg_cmd(*args, **kwargs)
+
+        _argv = self._argv
+        try:
+            rtsp_transport_index = _argv.index("-input_rtsp_transport")
+        except ValueError:
+            return
+        try:
+            rtsp_transport_spec = _argv[rtsp_transport_index + 1]
+        except IndexError:
+            return
+        else:
+            rtsp_transport_spec = rtsp_transport_spec.lower()
+        if rtsp_transport_spec in ("udp", "tcp", "http", "udp_multicast"):
+            del _argv[rtsp_transport_index : rtsp_transport_index + 2]
+            _argv.insert(1, "-rtsp_transport")
+            _argv.insert(2, rtsp_transport_spec)
+
+    HAFFmpeg._generate_ffmpeg_cmd = _generate_ffmpeg_cmd
+
+
 async def async_setup(hass: HomeAssistantType, config: ConfigType):
-    """Set up the TNS Energo component."""
+    """Set up the PIK Intercom component."""
+    _patch_haffmpeg()
+
     domain_config = config.get(DOMAIN)
     if not domain_config:
         return True
@@ -207,15 +220,12 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
 
         existing_entry = _find_existing_entry(hass, username)
         if existing_entry:
-            if existing_entry.source == config_entries.SOURCE_IMPORT:
+            if existing_entry.source == SOURCE_IMPORT:
                 yaml_config[key] = user_cfg
-                _LOGGER.debug(
-                    log_prefix + "Соответствующая конфигурационная запись существует"
-                )
+                _LOGGER.debug(log_prefix + "Соответствующая конфигурационная запись существует")
             else:
                 _LOGGER.warning(
-                    log_prefix
-                    + "Конфигурация из YAML переопределена другой конфигурацией!"
+                    log_prefix + "Конфигурация из YAML переопределена другой конфигурацией!"
                 )
             continue
 
@@ -227,7 +237,7 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
         hass.async_create_task(
             hass.config_entries.flow.async_init(
                 DOMAIN,
-                context={"source": config_entries.SOURCE_IMPORT},
+                context={"source": SOURCE_IMPORT},
                 data={CONF_USERNAME: username},
             )
         )
@@ -248,7 +258,7 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: ConfigEntry):
     _LOGGER.debug(log_prefix + "Setting up config entry")
 
     # Source full configuration
-    if config_entry.source == config_entries.SOURCE_IMPORT:
+    if config_entry.source == SOURCE_IMPORT:
         # Source configuration from YAML
         yaml_config = hass_data.get(DATA_YAML_CONFIG)
 
@@ -264,17 +274,15 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: ConfigEntry):
 
     else:
         # Source and convert configuration from input post_fields
-        all_cfg = {**config_entry.data}
-
-        if config_entry.options:
-            all_cfg.update(config_entry.options)
-
         try:
-            user_cfg = CONFIG_ENTRY_SCHEMA(all_cfg)
-        except vol.Invalid as e:
-            _LOGGER.error(
-                log_prefix + "Сохранённая конфигурация повреждена" + ": " + repr(e)
+            user_cfg = CONFIG_ENTRY_SCHEMA(
+                {
+                    **config_entry.data,
+                    **config_entry.options,
+                }
             )
+        except vol.Invalid as e:
+            _LOGGER.error(log_prefix + "Сохранённая конфигурация повреждена" + ": " + repr(e))
             return False
 
     _LOGGER.info(log_prefix + "Применение конфигурационной записи")
@@ -287,9 +295,7 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: ConfigEntry):
     else:
         used_device_id_source = "заданный пользователем"
 
-    _LOGGER.debug(
-        log_prefix + f"Используемый device_id: {device_id} ({used_device_id_source})"
-    )
+    _LOGGER.debug(log_prefix + f"Используемый device_id: {device_id} ({used_device_id_source})")
 
     api_object = PikIntercomAPI(
         username=username,
@@ -312,7 +318,7 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: ConfigEntry):
         await api_object.async_close()
         raise ConfigEntryNotReady(f"{e}")
 
-    apartments = api_object.apartments
+    apartments = api_object.properties
 
     if not apartments:
         # Cancel setup because no accounts provided
@@ -342,7 +348,7 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: ConfigEntry):
 
     # Create placeholders
     api_objects[config_entry_id] = api_object
-    hass_data.setdefault(DATA_ENTITIES, {})[config_entry_id] = {}
+    hass_data.setdefault(DATA_ENTITIES, {})[config_entry_id] = []
     hass_data.setdefault(DATA_FINAL_CONFIG, {})[config_entry_id] = user_cfg
     hass_data.setdefault(DATA_ENTITY_UPDATERS, {})[config_entry_id] = {}
 
@@ -365,12 +371,10 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: ConfigEntry):
 
         await api_object.async_authenticate()
 
-    hass.data.setdefault(DATA_REAUTHENTICATORS, {})[
-        config_entry_id
-    ] = async_track_time_interval(
+    hass.data.setdefault(DATA_REAUTHENTICATORS, {})[config_entry_id] = async_track_time_interval(
         hass,
         async_reauthenticate,
-        timedelta(days=1),
+        user_cfg[CONF_AUTH_UPDATE_INTERVAL],
     )
 
     _LOGGER.debug(log_prefix + "Применение конфигурации успешно")
@@ -379,12 +383,35 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: ConfigEntry):
 
 async def async_reload_entry(
     hass: HomeAssistantType,
-    config_entry: config_entries.ConfigEntry,
+    config_entry: ConfigEntry,
 ) -> None:
     """Reload Lkcomu TNS Energo entry"""
     log_prefix = f"[{mask_username(config_entry.data[CONF_USERNAME])}] "
     _LOGGER.info(log_prefix + "Перезагрузка интеграции")
     await hass.config_entries.async_reload(config_entry.entry_id)
+
+
+async def async_migrate_entry(hass: HomeAssistantType, config_entry: ConfigEntry) -> bool:
+    username = config_entry.data[CONF_USERNAME]
+
+    from custom_components.pik_intercom.config_flow import PikIntercomConfigFlow, DEFAULT_OPTIONS
+
+    log_prefix = f"[{mask_username(username)}] "
+    _LOGGER.info(
+        log_prefix + f"Обновление конфигурационной записи с версии "
+        f"{config_entry.version} до {PikIntercomConfigFlow.VERSION}"
+    )
+
+    data = dict(config_entry.data)
+    options = dict(config_entry.options)
+
+    if config_entry.version < 2 and config_entry.source == SOURCE_IMPORT:
+        options = DEFAULT_OPTIONS
+
+    config_entry.version = PikIntercomConfigFlow.VERSION
+    hass.config_entries.async_update_entry(config_entry, data=data, options=options)
+
+    return True
 
 
 async def async_unload_entry(hass: HomeAssistantType, config_entry: ConfigEntry):
@@ -400,15 +427,11 @@ async def async_unload_entry(hass: HomeAssistantType, config_entry: ConfigEntry)
 
     if unload_ok:
         # Cancel entity updaters
-        for update_identifier, (cancel_func, _) in (
-            hass.data[DATA_ENTITY_UPDATERS].pop(entry_id).items()
-        ):
+        for update_identifier, cancel_func in hass.data[DATA_ENTITY_UPDATERS].pop(entry_id).items():
             cancel_func()
 
         # Cancel reauthentication routines
-        reauthenticator: Callable = hass.data.get(DATA_REAUTHENTICATORS, {}).pop(
-            entry_id, None
-        )
+        reauthenticator: Callable = hass.data.get(DATA_REAUTHENTICATORS, {}).pop(entry_id, None)
         if reauthenticator:
             reauthenticator()
 

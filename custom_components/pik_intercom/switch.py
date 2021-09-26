@@ -4,7 +4,7 @@ __all__ = ("async_setup_entry", "PikIntercomUnlockerSwitch")
 
 import asyncio
 import logging
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Mapping, Optional
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.const import ATTR_ENTITY_ID, SERVICE_TURN_OFF
@@ -18,23 +18,21 @@ from custom_components.pik_intercom.const import DOMAIN
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_entry(
-    hass: HomeAssistantType, config_entry, async_add_entities
-) -> bool:
+async def async_setup_entry(hass: HomeAssistantType, config_entry, async_add_entities) -> bool:
     """Add a Pik Domofon IP intercom from a config entry."""
 
     config_entry_id = config_entry.entry_id
 
-    _LOGGER.debug(f"Setting up 'switch' platform for entry {config_entry_id}")
+    _LOGGER.debug(f"[{config_entry_id}] Настройка платформы 'switch'")
 
     api: PikIntercomAPI = hass.data[DOMAIN][config_entry_id]
 
     async_add_entities(
         [
-            PikIntercomUnlockerSwitch(config_entry_id, intercom_device)
+            PikIntercomUnlockerSwitch(hass, config_entry_id, intercom_device)
             for intercom_device in api.devices.values()
         ],
-        False,
+        True,
     )
 
     return True
@@ -58,15 +56,13 @@ class PikIntercomUnlockerSwitch(BasePikIntercomDeviceEntity, SwitchEntity):
     def name(self) -> Optional[str]:
         intercom_device = self._intercom_device
         return (
-            intercom_device.renamed_name
-            or intercom_device.human_name
-            or intercom_device.name
+            intercom_device.renamed_name or intercom_device.human_name or intercom_device.name
         ) + " Открытие"
 
     @property
     def unique_id(self) -> Optional[str]:
         intercom_device = self._intercom_device
-        return f"intercom_unlock_{intercom_device.property_id}_{intercom_device.id}"
+        return f"intercom_unlocker_{intercom_device.id}"
 
     @property
     def is_on(self) -> bool:
@@ -91,16 +87,6 @@ class PikIntercomUnlockerSwitch(BasePikIntercomDeviceEntity, SwitchEntity):
             "entrance": intercom_device.entrance,
             # "sip_account": intercom_device.sip_account,
             # "can_address": intercom_device.can_address,
-        }
-
-    @property
-    def device_info(self) -> Dict[str, Any]:
-        intercom_device = self._intercom_device
-        return {
-            "name": intercom_device.name,
-            "manufacturer": intercom_device.device_category,
-            "model": intercom_device.kind + " / " + intercom_device.mode,
-            "identifiers": {(DOMAIN, intercom_device.id)},
         }
 
     def turn_on(self, **kwargs: Any) -> None:

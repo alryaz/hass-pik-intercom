@@ -1,27 +1,31 @@
+import asyncio
 import logging
-from abc import ABC, abstractmethod
+import re
+from abc import ABC
 from collections import Hashable
-from typing import List, Tuple
+from typing import Any, ClassVar, Dict, Final, Tuple
 
-from homeassistant.const import CONF_SCAN_INTERVAL
+import voluptuous as vol
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.typing import HomeAssistantType
 
+from custom_components.pik_intercom.api import PikIntercomAPI, PikIntercomDevice
 from custom_components.pik_intercom.const import (
+    CONF_INTERCOMS_UPDATE_INTERVAL,
     DATA_ENTITIES,
     DATA_ENTITY_UPDATERS,
     DATA_FINAL_CONFIG,
     DOMAIN,
     UPDATE_CONFIG_KEY_INTERCOMS,
 )
-from custom_components.pik_intercom.api import PikIntercomAPI, PikIntercomDevice
 
-
-_LOGGER = logging.getLogger(__name__)
+_LOGGER: Final = logging.getLogger(__name__)
 
 
 class BasePikIntercomEntity(Entity, ABC):
-    def __init__(self, config_entry_id: str) -> None:
+    def __init__(self, hass: HomeAssistantType, config_entry_id: str) -> None:
+        self.hass = hass
         self._config_entry_id = config_entry_id
 
     @property
@@ -37,98 +41,119 @@ class BasePikIntercomEntity(Entity, ABC):
 
         return api_object
 
-    async def async_added_to_hass(self) -> None:
-        hass_data = self.hass.data
-        config_entry_id = self._config_entry_id
-        update_data_key = self._update_data_key
-
-        update_entities: List[BasePikIntercomEntity] = hass_data[DATA_ENTITIES][
-            config_entry_id
-        ].setdefault(update_data_key, [])
-
-        update_entities.append(self)
-
-        if update_data_key in hass_data[DATA_ENTITY_UPDATERS][config_entry_id]:
-            return
-
-        async def _async_update_entities(*_) -> None:
-            try:
-                update_entity = update_entities[0]
-            except IndexError:
-                _LOGGER.warning(
-                    "No entities to update. Did the component offload correctly?"
-                )
-                return
-            else:
-                # noinspection PyUnresolvedReferences
-                await update_entity.async_update_internal()
-                for entity in update_entities:
-                    entity.async_schedule_update_ha_state(False)
-
-        time_interval = hass_data[DATA_FINAL_CONFIG][self._config_entry_id][
-            CONF_SCAN_INTERVAL
-        ][self.update_config_key]
-
-        _LOGGER.debug(
-            f"Scheduling {update_data_key} entity updater "
-            f"with {time_interval.total_seconds()} interval"
-        )
-        updater = async_track_time_interval(
-            self.hass, _async_update_entities, time_interval
-        )
-        hass_data[DATA_ENTITY_UPDATERS][config_entry_id][update_data_key] = (
-            updater,
-            _async_update_entities,
-        )
-
-    async def async_will_remove_from_hass(self) -> None:
-        update_entities = (
-            self.hass.data.get(DATA_ENTITIES, {})
-            .get(self._config_entry_id, {})
-            .get(self._update_data_key, [])
-        )
-
-        if self in update_entities:
-            update_entities.remove(self)
-
     @property
     def should_poll(self) -> bool:
         return False
 
-    @property
-    @abstractmethod
-    def update_identifier(self) -> str:
-        raise NotImplementedError
+    async def async_added_to_hass(self) -> None:
+        self.hass.data[DATA_ENTITIES][self._config_entry_id].append(self)
 
-    @property
-    @abstractmethod
-    def update_config_key(self) -> str:
-        raise NotImplementedError
+    async def async_will_remove_from_hass(self) -> None:
+        entities = self.hass.data[DATA_ENTITIES][self._config_entry_id]
 
-    @property
-    def _update_data_key(self) -> Tuple[str, str]:
-        return self.update_config_key, self.update_identifier
-
-    @abstractmethod
-    async def async_update_internal(self) -> None:
-        raise NotImplementedError
-
-    async def async_update(self) -> None:
-        try:
-            cancel_func, update_func = self.hass.data[DATA_ENTITY_UPDATERS][
-                self._config_entry_id
-            ][self._update_data_key]
-        except KeyError:
-            _LOGGER.debug(f"Using raw updater to update entity {self.entity_id}")
-            update_func = self.async_update_internal
-        await update_func()
+        if self in entities:
+            entities.remove(self)
 
 
 class BasePikIntercomDeviceEntity(BasePikIntercomEntity):
-    def __init__(
-        self, config_entry_id: str, intercom_device: PikIntercomDevice
+    _intercom_getter_futures: ClassVar[Dict[Tuple[str, int], asyncio.Future]] = {}
+
+    @property
+    def device_info(self) -> Dict[str, Any]:
+        intercom_device = self._intercom_device
+
+        return {
+            "name": intercom_device.name,
+            "manufacturer": intercom_device.device_category,
+            "model": intercom_device.kind + " / " + intercom_device.mode,
+            "identifiers": {(DOMAIN, intercom_device.id)},
+            "suggested_area": f"Property {intercom_device.property_id}",
+        }
+
+    @classmethod
+    async def async_update_data(
+        cls,
+        hass: HomeAssistantType,
+        config_entry_id: str,
+        property_id: int,
     ) -> None:
-        super().__init__(config_entry_id)
+        futures = cls._intercom_getter_futures
+        future_key = (config_entry_id, property_id)
+        log_prefix = f"[{config_entry_id}] "
+        if future_key in futures:
+            _LOGGER.debug(log_prefix + f"Ожидание обновления intercoms[{property_id}]")
+            return await futures[future_key]
+
+        _LOGGER.debug(log_prefix + f"Выполнение обновления intercoms[{property_id}]")
+
+        api_object: PikIntercomAPI = hass.data[DOMAIN][config_entry_id]
+        future = hass.loop.create_future()
+        futures[future_key] = future
+
+        try:
+            await api_object.async_update_property_intercoms(property_id)
+        except BaseException as error:
+            future.set_exception(error)
+            _LOGGER.error(log_prefix + f"Ошибка при обновлении intercoms[{property_id}]: {error}")
+
+            raise future.exception()
+        else:
+            _LOGGER.debug(log_prefix + f"Обновление intercoms[{property_id}] завершено")
+            future.set_result(None)
+        finally:
+            del futures[future_key]
+
+    async def async_update(self) -> None:
+        await self.async_update_data(
+            self.hass,
+            self._config_entry_id,
+            self._intercom_device.property_id,
+        )
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+
+        hass = self.hass
+        property_id = self._intercom_device.property_id
+        config_entry_id = self._config_entry_id
+        updaters = hass.data[DATA_ENTITY_UPDATERS][config_entry_id]
+        update_key = f"property_{property_id}_intercoms"
+
+        if update_key in updaters:
+            return None
+
+        interval = hass.data[DATA_FINAL_CONFIG][config_entry_id][CONF_INTERCOMS_UPDATE_INTERVAL]
+
+        _LOGGER.debug(
+            f"[{config_entry_id}] Scheduling intercoms[{property_id}] updates "
+            f"with {interval.total_seconds()} seconds interval"
+        )
+
+        async def _async_update_property_intercoms(*_):
+            await BasePikIntercomDeviceEntity.async_update_data(
+                hass,
+                config_entry_id,
+                property_id,
+            )
+
+        updaters[update_key] = async_track_time_interval(
+            hass,
+            _async_update_property_intercoms,
+            interval,
+        )
+
+    @property
+    def intercom_property_id(self) -> int:
+        return self._intercom_device.property_id
+
+    def __init__(
+        self,
+        hass: HomeAssistantType,
+        config_entry_id: str,
+        intercom_device: PikIntercomDevice,
+    ) -> None:
+        super().__init__(hass, config_entry_id)
+
         self._intercom_device: PikIntercomDevice = intercom_device
 
     @property
@@ -147,7 +172,19 @@ class BasePikIntercomDeviceEntity(BasePikIntercomEntity):
     def update_identifier(self) -> Hashable:
         return self._intercom_device.property_id
 
-    async def async_update_internal(self) -> None:
-        await self.api_object.async_update_property_intercoms(
-            self._intercom_device.property_id
-        )
+
+def phone_validator(phone_number: str) -> str:
+    phone_number = re.sub(r"\D", "", phone_number)
+
+    if len(phone_number) == 10:
+        return "+7" + phone_number
+
+    elif len(phone_number) == 11:
+        if phone_number.startswith("8"):
+            return "+7" + phone_number[1:]
+        elif phone_number.startswith("7"):
+            return "+" + phone_number
+        else:
+            raise vol.Invalid("Unknown phone number format detected")
+    else:
+        raise vol.Invalid(f"Irregular phone number length (expected 11, got {len(phone_number)})")

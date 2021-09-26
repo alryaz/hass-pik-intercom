@@ -2,7 +2,6 @@ __all__ = (
     "PikIntercomAPI",
     "PikIntercomAccount",
     "PikIntercomDevice",
-    "PikIntercomApartment",
     "PikIntercomCallSession",
     "PikIntercomException",
     "VIDEO_QUALITY_TYPES",
@@ -53,7 +52,7 @@ class PikIntercomAPI:
         self._username = username
         self._password = password
 
-        if device_id is None:
+        if not device_id:
             device_id = "".join(
                 random.choices(
                     string.ascii_uppercase + string.digits,
@@ -77,7 +76,7 @@ class PikIntercomAPI:
         self._request_counter: int = 0
 
         self._account: Optional[PikIntercomAccount] = None
-        self._apartments: Dict[int, PikIntercomApartment] = {}
+        self._properties: Dict[int, PikIntercomProperty] = {}
         self._devices: Dict[int, PikIntercomDevice] = {}
         self._call_sessions: Dict[int, PikIntercomCallSession] = {}
 
@@ -110,8 +109,8 @@ class PikIntercomAPI:
         return self._authorization is not None
 
     @property
-    def apartments(self) -> Mapping[int, "PikIntercomApartment"]:
-        return MappingProxyType(self._apartments)
+    def properties(self) -> Mapping[int, "PikIntercomProperty"]:
+        return MappingProxyType(self._properties)
 
     @property
     def devices(self) -> Mapping[int, "PikIntercomDevice"]:
@@ -175,9 +174,7 @@ class PikIntercomAPI:
                 f"[{request_counter}] Could not perform {title}, "
                 f"invalid JSON body: {await request.text()}"
             )
-            raise PikIntercomException(
-                f"Could not perform {title} (body decoding failed)"
-            )
+            raise PikIntercomException(f"Could not perform {title} (body decoding failed)")
 
         except asyncio.TimeoutError:
             _LOGGER.error(
@@ -187,9 +184,7 @@ class PikIntercomAPI:
             raise PikIntercomException(f"Could not perform {title} (timed out)")
 
         except aiohttp.ClientError as e:
-            _LOGGER.error(
-                f"[{request_counter}] Could not perform {title}, " f"client error: {e}"
-            )
+            _LOGGER.error(f"[{request_counter}] Could not perform {title}, " f"client error: {e}")
             raise PikIntercomException(f"Could not perform {title} (client error)")
 
         else:
@@ -289,30 +284,38 @@ class PikIntercomAPI:
             authenticated=True,
         )
 
-        for apartment_data in resp_data.get("apartments", []):
-            apartment_id = apartment_data["id"]
-            try:
-                apartment = self._apartments[apartment_id]
-            except KeyError:
-                self._apartments[apartment_id] = PikIntercomApartment(
-                    api=self,
-                    id=apartment_id,
-                    scheme_id=apartment_data["scheme_id"],
-                    number=apartment_data["number"],
-                    section=apartment_data["section"],
-                    building_id=apartment_data["building_id"],
-                    district_id=apartment_data["district_id"],
-                    account_number=apartment_data.get("account_number"),
-                )
-            else:
-                apartment.api = self
-                apartment.id = apartment_id
-                apartment.scheme_id = apartment_data["scheme_id"]
-                apartment.number = apartment_data["number"]
-                apartment.section = apartment_data["section"]
-                apartment.building_id = apartment_data["building_id"]
-                apartment.district_id = apartment_data["district_id"]
-                apartment.account_number = apartment_data.get("account_number")
+        for property_type, properties_data in resp_data.items():
+            for property_data in properties_data:
+                property_id = property_data["id"]
+                try:
+                    property_ = self._properties[property_id]
+                except KeyError:
+                    self._properties[property_id] = PikIntercomProperty(
+                        api=self,
+                        category=property_type,
+                        id=property_id,
+                        scheme_id=property_data["scheme_id"],
+                        number=property_data["number"],
+                        section=property_data["section"],
+                        building_id=property_data["building_id"],
+                        district_id=property_data["district_id"],
+                        account_number=property_data.get("account_number"),
+                    )
+                else:
+                    if property_.category != property_type:
+                        _LOGGER.warning(
+                            f"[{request_counter}] Property category changed on {property_id} "
+                            f"({property_.category} => {property_type})"
+                        )
+                    property_.api = self
+                    property_.id = property_id
+                    property_.category = property_type
+                    property_.scheme_id = property_data["scheme_id"]
+                    property_.number = property_data["number"]
+                    property_.section = property_data["section"]
+                    property_.building_id = property_data["building_id"]
+                    property_.district_id = property_data["district_id"]
+                    property_.account_number = property_data.get("account_number")
 
         # @TODO: add other properties
 
@@ -334,9 +337,7 @@ class PikIntercomAPI:
             )
 
             if not resp_data:
-                _LOGGER.debug(
-                    f"[{request_counter}] Page {page_number} does not contain data"
-                )
+                _LOGGER.debug(f"[{request_counter}] Page {page_number} does not contain data")
                 break
 
             for intercom_data in resp_data:
@@ -344,9 +345,7 @@ class PikIntercomAPI:
 
                 video_data = intercom_data.get("video")
                 if video_data is not None:
-                    video_data = MultiDict(
-                        [(v["quality"], v["source"]) for v in video_data]
-                    )
+                    video_data = MultiDict([(v["quality"], v["source"]) for v in video_data])
 
                 try:
                     intercom = intercoms[intercom_id]
@@ -364,9 +363,7 @@ class PikIntercomAPI:
                         name=intercom_data["name"],
                         human_name=intercom_data["human_name"],
                         renamed_name=intercom_data["renamed_name"],
-                        checkpoint_relay_index=intercom_data.get(
-                            "checkpoint_relay_index"
-                        ),
+                        checkpoint_relay_index=intercom_data.get("checkpoint_relay_index"),
                         relays=intercom_data["relays"],
                         entrance=intercom_data.get("entrance"),
                         sip_account=intercom_data.get("sip_account"),
@@ -388,9 +385,7 @@ class PikIntercomAPI:
                     intercom.name = intercom_data["name"]
                     intercom.human_name = intercom_data["human_name"]
                     intercom.renamed_name = intercom_data["renamed_name"]
-                    intercom.checkpoint_relay_index = intercom_data.get(
-                        "checkpoint_relay_index"
-                    )
+                    intercom.checkpoint_relay_index = intercom_data.get("checkpoint_relay_index")
                     intercom.relays = intercom_data["relays"]
                     intercom.entrance = intercom_data.get("entrance")
                     intercom.sip_account = intercom_data.get("sip_account")
@@ -440,9 +435,7 @@ class PikIntercomAPI:
         last_call_session = self.last_call_session
         requires_further_updates = True
 
-        while requires_further_updates and (
-            max_pages is None or page_number < max_pages
-        ):
+        while requires_further_updates and (max_pages is None or page_number < max_pages):
             page_number += 1
 
             resp_data, headers, request_counter = await self._async_get(
@@ -455,9 +448,7 @@ class PikIntercomAPI:
             call_sessions_list = resp_data.get("call_sessions", ())
 
             if not call_sessions_list:
-                _LOGGER.debug(
-                    f"[{request_counter}] Page {page_number} does not contain data"
-                )
+                _LOGGER.debug(f"[{request_counter}] Page {page_number} does not contain data")
                 break
 
             for call_session_data in call_sessions_list:
@@ -524,9 +515,7 @@ class PikIntercomAPI:
                     call_session.hangup = call_session_data["hangup"]
                     call_session.intercom_name = call_session_data["intercom_name"]
                     call_session.photo_url = call_session_data.get("photo_url") or None
-                    call_session.answered_customer_device_ids = (
-                        answered_customer_device_ids
-                    )
+                    call_session.answered_customer_device_ids = answered_customer_device_ids
 
             _LOGGER.debug(f"[{request_counter}] Call sessions fetching successful")
 
@@ -552,7 +541,8 @@ class PikIntercomAccount(_BasePikIntercomObject):
 
 
 @attr.s(slots=True)
-class PikIntercomApartment(_BasePikIntercomObject):
+class PikIntercomProperty(_BasePikIntercomObject):
+    category: str = attr.ib()
     id: int = attr.ib()
     scheme_id: int = attr.ib()
     number: str = attr.ib()
@@ -627,9 +617,7 @@ class PikIntercomDevice(_BasePikIntercomObject):
 
         async with self.api.session.get(photo_url) as request:
             if request.status != 200:
-                raise PikIntercomException(
-                    f"Photo could not be retrieved ({request.status})"
-                )
+                raise PikIntercomException(f"Photo could not be retrieved ({request.status})")
 
             return await request.read()
 
