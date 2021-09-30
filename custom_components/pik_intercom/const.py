@@ -8,7 +8,6 @@ DATA_UPDATE_LISTENERS: Final = DOMAIN + "_update_listeners"
 DATA_ENTITY_UPDATERS: Final = DOMAIN + "_entity_updaters"
 DATA_REAUTHENTICATORS: Final = DOMAIN + "_reauthenticators"
 SUPPORTED_PLATFORMS: Final = ("camera", "switch", "sensor")
-CONF_REAUTH_INTERVAL: Final = "reauth_interval"
 CONF_CLIENT_APP: Final = "client_app"
 CONF_CLIENT_OS: Final = "client_os"
 CONF_CLIENT_VERSION: Final = "client_version"

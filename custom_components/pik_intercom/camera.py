@@ -116,42 +116,54 @@ class PikIntercomCamera(BasePikIntercomDeviceEntity, Camera):
         self,
         width: Optional[int] = None,
         height: Optional[int] = None,
-        force_tcp: Optional[bool] = None,
     ) -> Optional[bytes]:
-        if force_tcp is None:
-            force_tcp = self._requires_tcp_transport
-        if force_tcp is True:
-            return await ffmpeg.async_get_image(
+        use_tcp_transport = self._requires_tcp_transport
+        snapshot_image = None
+        stream_url = await self.stream_source()
+
+        if not stream_url:
+            return None
+
+        _LOGGER.debug(
+            f"[{self._config_entry_id}] Объект {self.entity_id} "
+            f"запрашивает кадр через поток RTSP"
+        )
+        if not use_tcp_transport:
+            snapshot_image = await ffmpeg.async_get_image(
                 self.hass,
-                self._intercom_device.stream_url,
-                extra_cmd="-input_rtsp_transport tcp",
+                stream_url,
                 width=width,
                 height=height,
             )
-        if force_tcp is False:
-            return await ffmpeg.async_get_image(
-                self.hass,
-                self._intercom_device.stream_url,
-                width=width,
-                height=height,
-            )
-        if force_tcp is None:
-            camera_image = await self.async_get_snapshot_by_ffmpeg(width, height, False)
-            if camera_image:
+            if use_tcp_transport is not False:
                 _LOGGER.debug(
                     f"[{self._config_entry_id}] Объект {self.entity_id} "
                     f"не требует передачу видео по протоколу TCP"
                 )
                 self._requires_tcp_transport = False
-                return camera_image
-            camera_image = await self.async_get_snapshot_by_ffmpeg(width, height, True)
-            if camera_image:
+
+        if use_tcp_transport or snapshot_image is None:
+            snapshot_image = await ffmpeg.async_get_image(
+                self.hass,
+                stream_url,
+                extra_cmd="-input_rtsp_transport tcp",
+                width=width,
+                height=height,
+            )
+            if use_tcp_transport is not True:
                 _LOGGER.debug(
                     f"[{self._config_entry_id}] Объект {self.entity_id} "
                     f"требует передачу видео по протоколу TCP"
                 )
                 self._requires_tcp_transport = True
-                return camera_image
+
+        if snapshot_image is None:
+            _LOGGER.debug(
+                f"[{self._config_entry_id}] Объект {self.entity_id} "
+                f"не получил кадр через поток RTSP"
+            )
+
+        return snapshot_image
 
     async def async_camera_image(
         self, width: Optional[int] = None, height: Optional[int] = None

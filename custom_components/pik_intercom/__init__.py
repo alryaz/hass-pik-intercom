@@ -37,7 +37,6 @@ from custom_components.pik_intercom.const import (
     CONF_CLIENT_OS,
     CONF_CLIENT_VERSION,
     CONF_INTERCOMS_UPDATE_INTERVAL,
-    CONF_REAUTH_INTERVAL,
     CONF_USER_AGENT,
     DATA_ENTITIES,
     DATA_ENTITY_UPDATERS,
@@ -371,10 +370,17 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: ConfigEntry):
 
         await api_object.async_authenticate()
 
+    auth_update_interval = user_cfg[CONF_AUTH_UPDATE_INTERVAL]
+
+    _LOGGER.debug(
+        log_prefix + f"Планирование профилактической ревторизации "
+        f"(интервал: {auth_update_interval.total_seconds()} секунд)"
+    )
+
     hass.data.setdefault(DATA_REAUTHENTICATORS, {})[config_entry_id] = async_track_time_interval(
         hass,
         async_reauthenticate,
-        user_cfg[CONF_AUTH_UPDATE_INTERVAL],
+        auth_update_interval,
     )
 
     _LOGGER.debug(log_prefix + "Применение конфигурации успешно")
