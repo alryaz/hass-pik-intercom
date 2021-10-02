@@ -3,8 +3,10 @@ import asyncio
 import logging
 from typing import Any, Callable, Mapping, Optional
 
+import async_timeout
 from homeassistant.components import ffmpeg
-from homeassistant.components.camera import Camera, SUPPORT_STREAM
+from homeassistant.components.camera import CAMERA_STREAM_SOURCE_TIMEOUT, Camera, SUPPORT_STREAM
+from homeassistant.components.stream import Stream, create_stream
 from homeassistant.helpers.typing import HomeAssistantType
 
 from custom_components.pik_intercom._base import BasePikIntercomDeviceEntity
@@ -149,6 +151,29 @@ class PikIntercomCamera(BasePikIntercomDeviceEntity, Camera):
         # Warn about missing sources
         _LOGGER.warning(log_prefix + "Отсутствует источник снимков")
         return None
+
+    async def create_stream(self) -> Optional[Stream]:
+        """Create a Stream for stream_source."""
+        # There is at most one stream (a decode worker) per camera
+        async with async_timeout.timeout(CAMERA_STREAM_SOURCE_TIMEOUT):
+            source = await self.stream_source()
+
+        stream = self.stream
+        if not source:
+            return stream
+
+        if stream and stream.source != source:
+            try:
+                stream.stop()
+            except RuntimeError as e:
+                _LOGGER.exception(f"[{self}] Ошибка при остановке предыдущего stream: {e}")
+            stream = None
+
+        if not stream:
+            stream = create_stream(self.hass, source, options=self.stream_options)
+            self.stream = stream
+
+        return stream
 
     async def stream_source(self) -> Optional[str]:
         """Return the RTSP stream source."""
