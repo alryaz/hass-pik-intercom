@@ -175,19 +175,18 @@ def _patch_haffmpeg():
 
         _argv = self._argv
         try:
-            rtsp_transport_index = _argv.index("-input_rtsp_transport")
+            rtsp_flags_index = _argv.index("-prefix_rtsp_flags")
         except ValueError:
             return
         try:
-            rtsp_transport_spec = _argv[rtsp_transport_index + 1]
+            rtsp_transport_spec = _argv[rtsp_flags_index + 1]
         except IndexError:
             return
         else:
-            rtsp_transport_spec = rtsp_transport_spec.lower()
-        if rtsp_transport_spec in ("udp", "tcp", "http", "udp_multicast"):
-            del _argv[rtsp_transport_index : rtsp_transport_index + 2]
-            _argv.insert(1, "-rtsp_transport")
-            _argv.insert(2, rtsp_transport_spec)
+            if not rtsp_transport_spec.startswith("-"):
+                del _argv[rtsp_flags_index : rtsp_flags_index + 2]
+                _argv.insert(1, "-rtsp_flags")
+                _argv.insert(2, rtsp_transport_spec)
 
     HAFFmpeg._generate_ffmpeg_cmd = _generate_ffmpeg_cmd
 

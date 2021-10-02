@@ -145,9 +145,10 @@ class PikIntercomAPI:
 
         self._request_counter += 1
         request_counter = self._request_counter
+        log_prefix = f"[{request_counter}] "
 
         _LOGGER.debug(
-            f"[{request_counter}] Performing {title} with "
+            log_prefix + f"Performing {title} with "
             f'username "{self._masked_username}", url: {url}'
         )
 
@@ -160,7 +161,7 @@ class PikIntercomAPI:
             ) as request:
                 if request.status != 200:
                     _LOGGER.error(
-                        f"[{request_counter}] Could not perform {title}, "
+                        log_prefix + f"Could not perform {title}, "
                         f"status {request.status}, body: {await request.text()}"
                     )
                     raise PikIntercomException(
@@ -171,26 +172,26 @@ class PikIntercomAPI:
 
         except json.JSONDecodeError:
             _LOGGER.error(
-                f"[{request_counter}] Could not perform {title}, "
+                log_prefix + f"Could not perform {title}, "
                 f"invalid JSON body: {await request.text()}"
             )
             raise PikIntercomException(f"Could not perform {title} (body decoding failed)")
 
         except asyncio.TimeoutError:
             _LOGGER.error(
-                f"[{request_counter}] Could not perform {title}, "
+                log_prefix + f"Could not perform {title}, "
                 f"waited for {self._session.timeout.total} seconds"
             )
             raise PikIntercomException(f"Could not perform {title} (timed out)")
 
         except aiohttp.ClientError as e:
-            _LOGGER.error(f"[{request_counter}] Could not perform {title}, " f"client error: {e}")
+            _LOGGER.error(log_prefix + f"Could not perform {title}, client error: {e}")
             raise PikIntercomException(f"Could not perform {title} (client error)")
 
         else:
             if isinstance(resp_data, dict) and resp_data.get("error"):
                 _LOGGER.error(
-                    f"Could not perform {title}, "
+                    log_prefix + f"Could not perform {title}, "
                     f"code: {resp_data.get('code', 'unknown')}, "
                     f"description: {resp_data.get('description', 'none provided')}"
                 )
@@ -563,6 +564,7 @@ class PikIntercomProperty(_BasePikIntercomObject):
         }  # @TODO: make into api-bound mapping
 
 
+# These are arbitrary, and never seen before
 VIDEO_QUALITY_TYPES: Final = ("high", "medium", "low")
 
 
@@ -611,15 +613,31 @@ class PikIntercomDevice(_BasePikIntercomObject):
 
     async def async_get_snapshot(self) -> bytes:
         photo_url = self.photo_url
+        api = self.api
+
         if not photo_url:
             # @TODO: add diversion to get snapshot off RTSP
             raise PikIntercomException("Photo URL is empty")
 
-        async with self.api.session.get(photo_url) as request:
-            if request.status != 200:
-                raise PikIntercomException(f"Photo could not be retrieved ({request.status})")
+        request_counter = api._request_counter + 1
+        api._request_counter += request_counter
+        log_prefix = f"[{request_counter}] "
 
-            return await request.read()
+        title = "camera snapshot retrieval"
+        try:
+            async with api.session.get(photo_url, raise_for_status=True) as request:
+                return await request.read()
+
+        except asyncio.TimeoutError:
+            _LOGGER.error(
+                log_prefix + f"Could not perform {title}, "
+                f"waited for {api.session.timeout.total} seconds"
+            )
+            raise PikIntercomException(f"Could not perform {title} (timed out)")
+
+        except aiohttp.ClientError as e:
+            _LOGGER.error(log_prefix + f"Could not perform {title}, client error: {e}")
+            raise PikIntercomException(f"Could not perform {title} (client error)")
 
 
 @attr.s(slots=True)

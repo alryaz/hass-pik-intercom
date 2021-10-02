@@ -79,6 +79,10 @@ class PikIntercomLastCallSessionSensor(BasePikIntercomEntity):
         await self.api_object.async_update_call_sessions(1)
 
     @property
+    def unique_id(self) -> str:
+        return f"last_call_session_{self.api_object.username}"
+
+    @property
     def update_config_key(self) -> str:
         return UPDATE_CONFIG_KEY_CALL_SESSIONS
 
