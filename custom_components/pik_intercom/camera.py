@@ -155,24 +155,19 @@ class PikIntercomCamera(BasePikIntercomDeviceEntity, Camera):
     async def create_stream(self) -> Optional[Stream]:
         """Create a Stream for stream_source."""
         # There is at most one stream (a decode worker) per camera
-        async with async_timeout.timeout(CAMERA_STREAM_SOURCE_TIMEOUT):
-            source = await self.stream_source()
+        stream = await super().create_stream()
 
-        stream = self.stream
-        if not source:
-            return stream
-
-        if stream and stream.source != source:
-            stream.keepalive = False
+        if stream:
             try:
-                stream.stop()
-            except RuntimeError as e:
-                _LOGGER.exception(f"[{self}] Ошибка при остановке предыдущего stream: {e}")
-            stream = None
-
-        if not stream:
-            stream = create_stream(self.hass, source, options=self.stream_options)
-            self.stream = stream
+                async with async_timeout.timeout(CAMERA_STREAM_SOURCE_TIMEOUT):
+                    source = await self.stream_source()
+            except asyncio.TimeoutError:
+                _LOGGER.debug(
+                    f"[{self}] Таймаут при получении stream URL (как это вообще возможно?)"
+                )
+            else:
+                if source != stream.source:
+                    stream.update_source(source)
 
         return stream
 
