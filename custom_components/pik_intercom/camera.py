@@ -6,7 +6,7 @@ from typing import Any, Callable, Mapping, Optional
 import async_timeout
 from homeassistant.components import ffmpeg
 from homeassistant.components.camera import CAMERA_STREAM_SOURCE_TIMEOUT, Camera, SUPPORT_STREAM
-from homeassistant.components.stream import Stream, create_stream
+from homeassistant.components.stream import Stream
 from homeassistant.helpers.typing import HomeAssistantType
 
 from custom_components.pik_intercom._base import BasePikIntercomDeviceEntity
@@ -152,24 +152,16 @@ class PikIntercomCamera(BasePikIntercomDeviceEntity, Camera):
         _LOGGER.warning(log_prefix + "Отсутствует источник снимков")
         return None
 
-    async def create_stream(self) -> Optional[Stream]:
-        """Create a Stream for stream_source."""
-        # There is at most one stream (a decode worker) per camera
-        stream = await super().create_stream()
+    async def async_update(self) -> None:
+        await super().async_update()
 
+        stream = self.stream
         if stream:
-            try:
-                async with async_timeout.timeout(CAMERA_STREAM_SOURCE_TIMEOUT):
-                    source = await self.stream_source()
-            except asyncio.TimeoutError:
-                _LOGGER.debug(
-                    f"[{self}] Таймаут при получении stream URL (как это вообще возможно?)"
-                )
-            else:
-                if source != stream.source:
-                    stream.update_source(source)
-
-        return stream
+            async with async_timeout.timeout(CAMERA_STREAM_SOURCE_TIMEOUT):
+                source = await self.stream_source()
+            if source != stream.source:
+                _LOGGER.debug(f"[{self}] Изменение URL потока: {stream.source} ---> {source}")
+                stream.update_source(source)
 
     async def stream_source(self) -> Optional[str]:
         """Return the RTSP stream source."""
