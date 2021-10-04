@@ -163,6 +163,7 @@ class PikIntercomCamera(BasePikIntercomDeviceEntity, Camera):
             return stream
 
         if stream and stream.source != source:
+            stream.keepalive = False
             try:
                 stream.stop()
             except RuntimeError as e:
