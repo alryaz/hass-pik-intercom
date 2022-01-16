@@ -199,6 +199,8 @@ class PikIntercomAPI:
                     f"Could not perform {title} ({resp_data.get('code', 'unknown')})"
                 )
 
+            _LOGGER.debug(log_prefix + f"Performed {title}, response: {resp_data}")
+
             return resp_data, request.headers, request_counter
 
     async def _async_get(
