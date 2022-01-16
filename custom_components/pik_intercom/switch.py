@@ -35,6 +35,8 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry, async_add_ent
         True,
     )
 
+    _LOGGER.debug(f"[{config_entry_id}] Завершение инициализации платформы 'switch'")
+
     return True
 
 
@@ -69,7 +71,7 @@ class PikIntercomUnlockerSwitch(BasePikIntercomDeviceEntity, SwitchEntity):
         return self._turn_off_waiter is not None
 
     @property
-    def device_state_attributes(self) -> Mapping[str, Any]:
+    def extra_state_attributes(self) -> Mapping[str, Any]:
         intercom_device = self._intercom_device
         return {
             "id": intercom_device.id,

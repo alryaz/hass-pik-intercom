@@ -36,6 +36,8 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry, async_add_ent
         True,
     )
 
+    _LOGGER.debug(f"[{config_entry_id}] Завершение инициализации платформы 'camera'")
+
     return True
 
 
@@ -80,7 +82,7 @@ class PikIntercomCamera(BasePikIntercomDeviceEntity, Camera):
         return intercom_device.renamed_name or intercom_device.human_name or intercom_device.name
 
     @property
-    def device_state_attributes(self) -> Mapping[str, Any]:
+    def extra_state_attributes(self) -> Mapping[str, Any]:
         intercom_device = self._intercom_device
         intercom_streams = intercom_device.video
         return {

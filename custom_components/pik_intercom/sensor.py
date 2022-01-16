@@ -39,6 +39,8 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry, async_add_ent
         True,
     )
 
+    _LOGGER.debug(f"[{config_entry_id}] Завершение инициализации платформы 'sensor'")
+
     return True
 
 
@@ -108,7 +110,7 @@ class PikIntercomLastCallSessionSensor(BasePikIntercomEntity):
         return "Last Call Session"
 
     @property
-    def device_state_attributes(self) -> Optional[Mapping[str, Any]]:
+    def extra_state_attributes(self) -> Optional[Mapping[str, Any]]:
         last_call_session = self.api_object.last_call_session
 
         if last_call_session is None:
