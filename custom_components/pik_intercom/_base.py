@@ -2,8 +2,7 @@ import asyncio
 import logging
 import re
 from abc import ABC
-from collections import Hashable
-from typing import Any, ClassVar, Dict, Final, Tuple
+from typing import Any, ClassVar, Dict, Final, Tuple, Hashable
 
 import voluptuous as vol
 from homeassistant.helpers.entity import Entity
