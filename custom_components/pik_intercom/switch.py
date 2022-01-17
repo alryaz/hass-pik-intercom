@@ -80,7 +80,7 @@ class _BaseUnlockerSwitch(BasePikIntercomEntity, SwitchEntity, ABC):
         super().__init__(*args, **kwargs)
         SwitchEntity.__init__(self)
 
-        self.entity_id = f"switch.{self._internal_object_identifier}_unlocker"
+        self.entity_id = f"switch.{self._internal_object_identifier.replace('__', '_')}_unlocker"
         self._turn_off_waiter = None
 
     @property
