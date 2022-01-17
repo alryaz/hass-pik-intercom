@@ -316,31 +316,23 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: ConfigEntry):
         await api_object.async_close()
         raise ConfigEntryNotReady(f"{e}")
 
+    tasks = [api_object.async_update_personal_intercoms()]
+
     apartments = api_object.properties
+    if apartments:
+        for apartment_object in apartments.values():
+            tasks.append(apartment_object.async_update_intercoms())
 
-    if not apartments:
-        # Cancel setup because no accounts provided
-        _LOGGER.warning(log_prefix + "Владения найдены")
+    done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
+    if pending:
+        for task in pending:
+            task.cancel()
+
+    first_task = next(iter(done))
+    exc_first_task = first_task.exception()
+    if exc_first_task:
         await api_object.async_close()
-        return False
-
-    tasks = []
-    for apartment_object in apartments.values():
-        tasks.append(apartment_object.async_update_intercoms())
-
-    if tasks:
-        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
-        if pending:
-            for task in pending:
-                task.cancel()
-
-        first_task = next(iter(done))
-        exc_first_task = first_task.exception()
-        if exc_first_task:
-            await api_object.async_close()
-            raise ConfigEntryNotReady(f"Ошибка при обновлении данных: {exc_first_task}")
-
-    _LOGGER.debug(log_prefix + f"Найдено {len(apartments)} владений")
+        raise ConfigEntryNotReady(f"Ошибка при обновлении данных: {exc_first_task}")
 
     api_objects: Dict[str, "PikIntercomAPI"] = hass_data.setdefault(DOMAIN, {})
 

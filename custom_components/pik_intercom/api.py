@@ -16,9 +16,10 @@ import json
 import logging
 import random
 import string
+from abc import abstractmethod, ABC
 from datetime import datetime
 from types import MappingProxyType
-from typing import Any, ClassVar, Dict, Final, Mapping, Optional, Tuple
+from typing import Any, ClassVar, Dict, Final, Mapping, Optional, Tuple, List, NamedTuple
 
 import aiohttp
 import attr
@@ -28,26 +29,27 @@ _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_USER_AGENT: Final = "okhttp/4.9.0"
 DEFAULT_CLIENT_APP: Final = "alfred"
-DEFAULT_CLIENT_VERSION: Final = "2021.6.1"
+DEFAULT_CLIENT_VERSION: Final = "2021.10.2"
 DEFAULT_CLIENT_OS: Final = "Android"
 
 
 class PikIntercomException(Exception):
-    pass
+    """Base class for exceptions"""
 
 
 class PikIntercomAPI:
     BASE_PIK_URL: ClassVar[str] = "https://intercom.pik-comfort.ru"
+    BASE_RUBETEK_URL: ClassVar[str] = "https://iot.rubetek.com"
 
     def __init__(
-        self,
-        username: str,
-        password: str,
-        device_id: Optional[str] = None,
-        user_agent: str = DEFAULT_USER_AGENT,
-        client_app: str = DEFAULT_CLIENT_APP,
-        client_version: str = DEFAULT_CLIENT_VERSION,
-        client_os: str = DEFAULT_CLIENT_OS,
+            self,
+            username: str,
+            password: str,
+            device_id: Optional[str] = None,
+            user_agent: str = DEFAULT_USER_AGENT,
+            client_app: str = DEFAULT_CLIENT_APP,
+            client_version: str = DEFAULT_CLIENT_VERSION,
+            client_os: str = DEFAULT_CLIENT_OS,
     ) -> None:
         self._username = username
         self._password = password
@@ -63,7 +65,7 @@ class PikIntercomAPI:
         self._session = aiohttp.ClientSession(
             headers={
                 aiohttp.hdrs.USER_AGENT: user_agent,
-                "api-version": "2",
+                "API-VERSION": "2",
                 "device-client-app": client_app,
                 "device-client-version": client_version,
                 "device-client-os": client_os,
@@ -78,6 +80,8 @@ class PikIntercomAPI:
         self._account: Optional[PikIntercomAccount] = None
         self._properties: Dict[int, PikIntercomProperty] = {}
         self._devices: Dict[int, PikIntercomDevice] = {}
+        self._iot_intercoms: Dict[int, PikIntercomIotIntercom] = {}
+        self._iot_relays: Dict[int, PikIntercomIotRelay] = {}
         self._call_sessions: Dict[int, PikIntercomCallSession] = {}
 
         # @TODO: add other properties
@@ -116,6 +120,14 @@ class PikIntercomAPI:
     def devices(self) -> Mapping[int, "PikIntercomDevice"]:
         return MappingProxyType(self._devices)
 
+    @property
+    def iot_intercoms(self) -> Mapping[int, "PikIntercomIotIntercom"]:
+        return MappingProxyType(self._iot_intercoms)
+
+    @property
+    def iot_relays(self) -> Mapping[int, "PikIntercomIotRelay"]:
+        return MappingProxyType(self._iot_relays)
+
     async def async_close(self) -> None:
         await self._session.close()
 
@@ -124,13 +136,14 @@ class PikIntercomAPI:
         return "..." + self._username[-3:]
 
     async def _async_req(
-        self,
-        method: str,
-        sub_url: str,
-        headers: Optional[CIMultiDict] = None,
-        authenticated: bool = False,
-        title: str = "request",
-        **kwargs: Any,
+            self,
+            method: str,
+            sub_url: str,
+            headers: Optional[CIMultiDict] = None,
+            authenticated: bool = False,
+            title: str = "request",
+            base_url: Optional[str] = None,
+            **kwargs: Any,
     ) -> Tuple[Any, CIMultiDictProxy[str], int]:
         if headers is None:
             headers = CIMultiDict()
@@ -141,7 +154,7 @@ class PikIntercomAPI:
 
             headers[aiohttp.hdrs.AUTHORIZATION] = self._authorization
 
-        url = self.BASE_PIK_URL + sub_url
+        url = (base_url or self.BASE_PIK_URL) + sub_url
 
         self._request_counter += 1
         request_counter = self._request_counter
@@ -149,20 +162,20 @@ class PikIntercomAPI:
 
         _LOGGER.debug(
             log_prefix + f"Performing {title} with "
-            f'username "{self._masked_username}", url: {url}'
+                         f'username "{self._masked_username}", url: {url}'
         )
 
         try:
             async with self._session.request(
-                method,
-                url,
-                headers=headers,
-                **kwargs,
+                    method,
+                    url,
+                    headers=headers,
+                    **kwargs,
             ) as request:
                 if request.status != 200:
                     _LOGGER.error(
                         log_prefix + f"Could not perform {title}, "
-                        f"status {request.status}, body: {await request.text()}"
+                                     f"status {request.status}, body: {await request.text()}"
                     )
                     raise PikIntercomException(
                         f"Could not perform {title} (status code {request.status})"
@@ -173,14 +186,14 @@ class PikIntercomAPI:
         except json.JSONDecodeError:
             _LOGGER.error(
                 log_prefix + f"Could not perform {title}, "
-                f"invalid JSON body: {await request.text()}"
+                             f"invalid JSON body: {await request.text()}"
             )
             raise PikIntercomException(f"Could not perform {title} (body decoding failed)")
 
         except asyncio.TimeoutError:
             _LOGGER.error(
                 log_prefix + f"Could not perform {title}, "
-                f"waited for {self._session.timeout.total} seconds"
+                             f"waited for {self._session.timeout.total} seconds"
             )
             raise PikIntercomException(f"Could not perform {title} (timed out)")
 
@@ -192,8 +205,8 @@ class PikIntercomAPI:
             if isinstance(resp_data, dict) and resp_data.get("error"):
                 _LOGGER.error(
                     log_prefix + f"Could not perform {title}, "
-                    f"code: {resp_data.get('code', 'unknown')}, "
-                    f"description: {resp_data.get('description', 'none provided')}"
+                                 f"code: {resp_data.get('code', 'unknown')}, "
+                                 f"description: {resp_data.get('description', 'none provided')}"
                 )
                 raise PikIntercomException(
                     f"Could not perform {title} ({resp_data.get('code', 'unknown')})"
@@ -204,27 +217,31 @@ class PikIntercomAPI:
             return resp_data, request.headers, request_counter
 
     async def _async_get(
-        self,
-        sub_url: str,
-        headers: Optional[CIMultiDict] = None,
-        authenticated: bool = False,
-        title: str = "request",
-        **kwargs: Any,
+            self,
+            sub_url: str,
+            headers: Optional[CIMultiDict] = None,
+            authenticated: bool = False,
+            title: str = "request",
+            base_url: Optional[str] = None,
+            **kwargs: Any,
     ) -> Tuple[Any, CIMultiDictProxy[str], int]:
+        """GET request wrapper"""
         return await self._async_req(
-            aiohttp.hdrs.METH_GET, sub_url, headers, authenticated, title, **kwargs
+            aiohttp.hdrs.METH_GET, sub_url, headers, authenticated, title, base_url, **kwargs
         )
 
     async def _async_post(
-        self,
-        sub_url: str,
-        headers: Optional[CIMultiDict] = None,
-        authenticated: bool = False,
-        title: str = "request",
-        **kwargs: Any,
+            self,
+            sub_url: str,
+            headers: Optional[CIMultiDict] = None,
+            authenticated: bool = False,
+            title: str = "request",
+            base_url: Optional[str] = None,
+            **kwargs: Any,
     ) -> Tuple[Any, CIMultiDictProxy[str], int]:
+        """POST request wrapper"""
         return await self._async_req(
-            aiohttp.hdrs.METH_POST, sub_url, headers, authenticated, title, **kwargs
+            aiohttp.hdrs.METH_POST, sub_url, headers, authenticated, title, base_url, **kwargs
         )
 
     async def async_authenticate(self) -> None:
@@ -238,7 +255,7 @@ class PikIntercomAPI:
             title="authentication",
         )
 
-        authorization = headers.get("Authorization")
+        authorization = headers.get(aiohttp.hdrs.AUTHORIZATION)
         if not authorization:
             _LOGGER.error(
                 f"[{request_counter}] Could not perform authentication, "
@@ -340,7 +357,7 @@ class PikIntercomAPI:
             )
 
             if not resp_data:
-                _LOGGER.debug(f"[{request_counter}] Page {page_number} does not contain data")
+                _LOGGER.debug(f"[{request_counter}] Property intercoms page {page_number} does not contain data")
                 break
 
             for intercom_data in resp_data:
@@ -399,7 +416,101 @@ class PikIntercomAPI:
 
             _LOGGER.debug(f"[{request_counter}] Property intercoms fetching successful")
 
-    async def async_intercom_unlock(self, intercom_id: int, mode: str) -> None:
+    async def async_update_personal_intercoms(self) -> None:
+        sub_url = f"/api/alfred/v1/personal/intercoms"
+        intercoms = self._iot_intercoms
+        relays = self._iot_relays
+        page_number = 0
+        found_relay_ids = set()
+
+        while True:
+            page_number += 1
+
+            resp_data, headers, request_counter = await self._async_get(
+                sub_url,
+                title="property intercoms fetching",
+                authenticated=True,
+                base_url=self.BASE_RUBETEK_URL,
+                params={"page": page_number},
+            )
+
+            if not resp_data:
+                _LOGGER.debug(f"[{request_counter}] Personal intercoms page {page_number} does not contain data")
+                break
+
+            for iot_intercom_data in resp_data:
+                iot_intercom_id = iot_intercom_data["id"]
+
+                face_detection = bool(iot_intercom_data.get("is_face_detection"))
+
+                try:
+                    iot_intercom = intercoms[iot_intercom_id]
+
+                except KeyError:
+                    iot_intercom = PikIntercomIotIntercom(
+                        api=self,
+                        id=iot_intercom_id,
+                        name=iot_intercom_data["name"],
+                        client_id=iot_intercom_data["client_id"],
+                        status=iot_intercom_data["status"],
+                        photo_url=iot_intercom_data.get("live_snapshot_url"),
+                        # geo_unit=iot_intercom_data.get("property_geo_units"),
+                        face_detection=face_detection,
+                        # sip_account=iot_intercom_data.get("sip_account"),
+                    )
+                    intercoms[iot_intercom_id] = iot_intercom
+                else:
+                    iot_intercom.api = self
+                    iot_intercom.id = iot_intercom_id
+                    iot_intercom.name = iot_intercom_data["name"]
+                    iot_intercom.client_id = iot_intercom_data["client_id"]
+                    iot_intercom.status = iot_intercom_data["status"]
+                    iot_intercom.photo_url = iot_intercom_data.get("live_snapshot_url")
+                    iot_intercom.face_detection = face_detection
+
+                iot_intercom_relays = iot_intercom.relays
+                iot_intercom_relays.clear()
+
+                for relay_data in sorted(iot_intercom_data.get("relays") or (), key=lambda x: x["id"]):
+                    iot_relay_id = relay_data["id"]
+                    found_relay_ids.add(iot_relay_id)
+
+                    relay_settings_data = relay_data.get("user_settings") or {}
+                    relay_settings = RelaySettings(
+                        custom_name=relay_settings_data.get("custom_name"),
+                        is_favorite=bool(relay_settings_data.get("is_favorite")),
+                        is_hidden=bool(relay_settings_data.get("is_hidden")),
+                    )
+
+                    try:
+                        iot_relay = relays[iot_relay_id]
+                    except KeyError:
+                        iot_relay = PikIntercomIotRelay(
+                            api=self,
+                            id=iot_relay_id,
+                            name=relay_data["name"],
+                            user_settings=relay_settings,
+                            stream_url=relay_data.get("rtsp_url"),
+                            photo_url=relay_data.get("live_snapshot_url"),
+                        )
+                        relays[iot_relay_id] = iot_relay
+                    else:
+                        iot_relay.api = self
+                        iot_relay.id = iot_relay_id
+                        iot_relay.name = relay_data["name"]
+                        iot_relay.user_settings = relay_settings
+                        iot_relay.stream_url = relay_data.get("stream_url")
+                        iot_relay.photo_url = relay_data.get("photo_url")
+
+                    iot_intercom_relays.append(iot_relay)
+
+            _LOGGER.debug(f"[{request_counter}] Property intercoms fetching successful")
+
+        # Clean up old relay data
+        for key in (relays.keys() - found_relay_ids):
+            del relays[key]
+
+    async def async_device_unlock(self, intercom_id: int, mode: str) -> None:
         resp_data, headers, request_counter = await self._async_post(
             f"/api/customers/intercoms/{intercom_id}/unlock",
             data={"id": intercom_id, "door": mode},
@@ -415,6 +526,18 @@ class PikIntercomAPI:
             raise PikIntercomException("Could not unlock intercom (result is False)")
 
         _LOGGER.debug(f"[{request_counter}] Intercom unlocking successful")
+
+    async def async_iot_relay_unlock(self, iot_relay_id: int) -> None:
+        resp_data, headers, request_counter = await self._async_post(
+            f"/api/alfred/v1/personal/relays/{iot_relay_id}/unlock",
+            title="IoT relay unlocking",
+            base_url=self.BASE_RUBETEK_URL,
+            authenticated=True,
+        )
+
+        # @TODO: rule out correct response
+
+        _LOGGER.debug(f"[{request_counter}] Intercom unlocking successful (assumed)")
 
     @property
     def last_call_session(self) -> Optional["PikIntercomCallSession"]:
@@ -451,7 +574,7 @@ class PikIntercomAPI:
             call_sessions_list = resp_data.get("call_sessions", ())
 
             if not call_sessions_list:
-                _LOGGER.debug(f"[{request_counter}] Page {page_number} does not contain data")
+                _LOGGER.debug(f"[{request_counter}] Call sessions page {page_number} does not contain data")
                 break
 
             for call_session_data in call_sessions_list:
@@ -461,9 +584,9 @@ class PikIntercomAPI:
                 updated_at = datetime.fromisoformat(session_data["updated_at"])
 
                 if (
-                    requires_further_updates
-                    and last_call_session
-                    and last_call_session.updated_at > updated_at
+                        requires_further_updates
+                        and last_call_session
+                        and last_call_session.updated_at > updated_at
                 ):
                     requires_further_updates = False
 
@@ -571,7 +694,51 @@ VIDEO_QUALITY_TYPES: Final = ("high", "medium", "low")
 
 
 @attr.s(slots=True)
-class PikIntercomDevice(_BasePikIntercomObject):
+class _WithSnapshot(_BasePikIntercomObject, ABC):
+    @property
+    @abstractmethod
+    def photo_url(self) -> Optional[str]:
+        raise NotImplementedError
+
+    async def async_get_snapshot(self) -> bytes:
+        photo_url = self.photo_url
+        api = self.api
+
+        if not photo_url:
+            # @TODO: add diversion to get snapshot off RTSP
+            raise PikIntercomException("Photo URL is empty")
+
+        request_counter = api._request_counter + 1
+        api._request_counter += request_counter
+        log_prefix = f"[{request_counter}] "
+
+        title = "camera snapshot retrieval"
+        try:
+            async with api.session.get(photo_url, raise_for_status=True) as request:
+                return await request.read()
+
+        except asyncio.TimeoutError:
+            _LOGGER.error(
+                log_prefix + f"Could not perform {title}, "
+                             f"waited for {api.session.timeout.total} seconds"
+            )
+            raise PikIntercomException(f"Could not perform {title} (timed out)")
+
+        except aiohttp.ClientError as e:
+            _LOGGER.error(log_prefix + f"Could not perform {title}, client error: {e}")
+            raise PikIntercomException(f"Could not perform {title} (client error)")
+
+
+@attr.s(slots=True)
+class _WithVideo(_BasePikIntercomObject, ABC):
+    @property
+    @abstractmethod
+    def stream_url(self) -> Optional[str]:
+        raise NotImplementedError
+
+
+@attr.s(slots=True)
+class PikIntercomDevice(_WithSnapshot, _WithVideo):
     id: int = attr.ib()
     scheme_id: int = attr.ib()
     building_id: int = attr.ib()
@@ -611,35 +778,7 @@ class PikIntercomDevice(_BasePikIntercomObject):
 
     async def async_unlock(self) -> None:
         """Unlock intercom"""
-        await self.api.async_intercom_unlock(self.id, self.mode)
-
-    async def async_get_snapshot(self) -> bytes:
-        photo_url = self.photo_url
-        api = self.api
-
-        if not photo_url:
-            # @TODO: add diversion to get snapshot off RTSP
-            raise PikIntercomException("Photo URL is empty")
-
-        request_counter = api._request_counter + 1
-        api._request_counter += request_counter
-        log_prefix = f"[{request_counter}] "
-
-        title = "camera snapshot retrieval"
-        try:
-            async with api.session.get(photo_url, raise_for_status=True) as request:
-                return await request.read()
-
-        except asyncio.TimeoutError:
-            _LOGGER.error(
-                log_prefix + f"Could not perform {title}, "
-                f"waited for {api.session.timeout.total} seconds"
-            )
-            raise PikIntercomException(f"Could not perform {title} (timed out)")
-
-        except aiohttp.ClientError as e:
-            _LOGGER.error(log_prefix + f"Could not perform {title}, client error: {e}")
-            raise PikIntercomException(f"Could not perform {title} (client error)")
+        await self.api.async_device_unlock(self.id, self.mode)
 
 
 @attr.s(slots=True)
@@ -664,3 +803,38 @@ class PikIntercomCallSession(_BasePikIntercomObject):
             return None
 
         return self.api.BASE_PIK_URL + photo_url
+
+
+class RelaySettings(NamedTuple):
+    custom_name: Optional[str]
+    is_favorite: bool
+    is_hidden: bool
+
+
+@attr.s(slots=True)
+class PikIntercomIotRelay(_WithSnapshot, _WithVideo):
+    id: int = attr.ib()
+    name: str = attr.ib()
+    user_settings: RelaySettings = attr.ib()
+    stream_url: Optional[str] = attr.ib(default=None)
+    photo_url: Optional[str] = attr.ib(default=None)
+
+    @property
+    def friendly_name(self) -> str:
+        return self.user_settings.custom_name or self.name
+
+    async def async_unlock(self) -> None:
+        """Unlock IoT relay"""
+        return await self.api.async_iot_relay_unlock(self.id)
+
+
+@attr.s(slots=True)
+class PikIntercomIotIntercom(_WithSnapshot):
+    id: int = attr.ib()
+    name: str = attr.ib()
+    client_id: int = attr.ib()
+    status: str = attr.ib()
+    photo_url: Optional[str] = attr.ib(default=None)
+    geo_unit: Any = attr.ib(default=None)  # @TODO
+    face_detection: bool = attr.ib(default=False)
+    relays: List[PikIntercomIotRelay] = attr.ib(factory=list)

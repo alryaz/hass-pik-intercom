@@ -2,21 +2,20 @@ import asyncio
 import logging
 import re
 from abc import ABC
-from typing import Any, ClassVar, Dict, Final, Tuple, Hashable
+from typing import Any, ClassVar, Dict, Final, Tuple
 
 import voluptuous as vol
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.typing import HomeAssistantType
 
-from custom_components.pik_intercom.api import PikIntercomAPI, PikIntercomDevice
+from custom_components.pik_intercom.api import PikIntercomAPI, PikIntercomDevice, PikIntercomIotRelay
 from custom_components.pik_intercom.const import (
     CONF_INTERCOMS_UPDATE_INTERVAL,
     DATA_ENTITIES,
     DATA_ENTITY_UPDATERS,
     DATA_FINAL_CONFIG,
     DOMAIN,
-    UPDATE_CONFIG_KEY_INTERCOMS,
 )
 
 _LOGGER: Final = logging.getLogger(__name__)
@@ -71,10 +70,10 @@ class BasePikIntercomDeviceEntity(BasePikIntercomEntity):
 
     @classmethod
     async def async_update_data(
-        cls,
-        hass: HomeAssistantType,
-        config_entry_id: str,
-        property_id: int,
+            cls,
+            hass: HomeAssistantType,
+            config_entry_id: str,
+            property_id: int,
     ) -> None:
         futures = cls._intercom_getter_futures
         future_key = (config_entry_id, property_id)
@@ -146,10 +145,10 @@ class BasePikIntercomDeviceEntity(BasePikIntercomEntity):
         return self._intercom_device.property_id
 
     def __init__(
-        self,
-        hass: HomeAssistantType,
-        config_entry_id: str,
-        intercom_device: PikIntercomDevice,
+            self,
+            hass: HomeAssistantType,
+            config_entry_id: str,
+            intercom_device: PikIntercomDevice,
     ) -> None:
         super().__init__(hass, config_entry_id)
 
@@ -163,13 +162,107 @@ class BasePikIntercomDeviceEntity(BasePikIntercomEntity):
                 return True
         return False
 
-    @property
-    def update_config_key(self) -> str:
-        return UPDATE_CONFIG_KEY_INTERCOMS
+
+class BasePikIntercomIotIntercomEntity(BasePikIntercomEntity):
+    _iot_intercoms_getter_futures: ClassVar[Dict[str, asyncio.Future]] = {}
+
+    @classmethod
+    async def async_update_data(
+            cls,
+            hass: HomeAssistantType,
+            config_entry_id: str,
+    ) -> None:
+        futures = cls._iot_intercoms_getter_futures
+        log_prefix = f"[{config_entry_id}] "
+
+        if config_entry_id in futures:
+            _LOGGER.debug(log_prefix + f"Ожидание обновления iot_intercoms]")
+            return await futures[config_entry_id]
+
+        _LOGGER.debug(log_prefix + f"Выполнение обновления iot_intercoms")
+
+        api_object: PikIntercomAPI = hass.data[DOMAIN][config_entry_id]
+        future = hass.loop.create_future()
+        futures[config_entry_id] = future
+
+        try:
+            await api_object.async_update_personal_intercoms()
+        except BaseException as error:
+            future.set_exception(error)
+            _LOGGER.error(log_prefix + f"Ошибка при обновлении iot_intercoms: {error}")
+
+            raise future.exception()
+        else:
+            _LOGGER.debug(log_prefix + f"Обновление iot_intercoms завершено")
+            future.set_result(None)
+        finally:
+            del futures[config_entry_id]
+
+    async def async_update(self) -> None:
+        await self.async_update_data(
+            self.hass,
+            self._config_entry_id,
+        )
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+
+        hass = self.hass
+        config_entry_id = self._config_entry_id
+        updaters = hass.data[DATA_ENTITY_UPDATERS][config_entry_id]
+        update_key = f"iot_intercoms"
+
+        if update_key in updaters:
+            return None
+
+        interval = hass.data[DATA_FINAL_CONFIG][config_entry_id][CONF_INTERCOMS_UPDATE_INTERVAL]
+
+        _LOGGER.debug(
+            f"[{config_entry_id}] Scheduling iot_intercoms updates "
+            f"with {interval.total_seconds()} seconds interval"
+        )
+
+        async def _async_update_property_intercoms(*_):
+            await BasePikIntercomIotIntercomEntity.async_update_data(
+                hass,
+                config_entry_id,
+            )
+
+        updaters[update_key] = async_track_time_interval(
+            hass,
+            _async_update_property_intercoms,
+            interval,
+        )
+
+
+class BasePikIntercomIotIntercomRelayEntity(BasePikIntercomIotIntercomEntity):
+    def __init__(
+            self,
+            hass: HomeAssistantType,
+            config_entry_id: str,
+            iot_relay: PikIntercomIotRelay,
+    ) -> None:
+        super().__init__(hass, config_entry_id)
+
+        self._iot_relay = iot_relay
 
     @property
-    def update_identifier(self) -> Hashable:
-        return self._intercom_device.property_id
+    def device_info(self) -> Dict[str, Any]:
+        iot_relay = self._iot_relay
+
+        return {
+            "name": iot_relay.name,
+            "identifiers": {(DOMAIN, f"iot_relay__{iot_relay.id}")},
+            # "suggested_area": f"Property {iot_relay.property_id}",  # @TODO
+        }
+
+    @property
+    def available(self) -> bool:
+        my_iot_relay = self._iot_relay
+        for intercom_device in self.api_object.iot_relays.values():
+            if intercom_device is my_iot_relay:
+                return True
+        return False
 
 
 def phone_validator(phone_number: str) -> str:
