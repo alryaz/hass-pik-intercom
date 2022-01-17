@@ -60,7 +60,9 @@ _LOGGER: Final = logging.getLogger(__name__)
 
 CONFIG_ENTRY_SCHEMA: Final = vol.Schema(
     {
-        vol.Required(CONF_USERNAME): vol.All(cv.string, vol.Any(phone_validator, vol.Email)),
+        vol.Required(CONF_USERNAME): vol.All(
+            cv.string, vol.Any(phone_validator, vol.Email)
+        ),
         vol.Required(CONF_PASSWORD): cv.string,
         # Update intervals
         vol.Optional(
@@ -69,7 +71,9 @@ CONFIG_ENTRY_SCHEMA: Final = vol.Schema(
             description="Intercoms update interval",
         ): vol.All(
             cv.positive_time_period,
-            vol.Clamp(min=timedelta(seconds=MIN_CALL_SESSIONS_UPDATE_INTERVAL)),
+            vol.Clamp(
+                min=timedelta(seconds=MIN_CALL_SESSIONS_UPDATE_INTERVAL)
+            ),
         ),
         vol.Optional(
             CONF_CALL_SESSIONS_UPDATE_INTERVAL,
@@ -77,7 +81,9 @@ CONFIG_ENTRY_SCHEMA: Final = vol.Schema(
             description="Call sessions update interval",
         ): vol.All(
             cv.positive_time_period,
-            vol.Clamp(min=timedelta(seconds=MIN_CALL_SESSIONS_UPDATE_INTERVAL)),
+            vol.Clamp(
+                min=timedelta(seconds=MIN_CALL_SESSIONS_UPDATE_INTERVAL)
+            ),
         ),
         vol.Optional(
             CONF_AUTH_UPDATE_INTERVAL,
@@ -90,7 +96,9 @@ CONFIG_ENTRY_SCHEMA: Final = vol.Schema(
         # Additional parameters
         vol.Optional(CONF_CLIENT_APP, default=DEFAULT_CLIENT_APP): cv.string,
         vol.Optional(CONF_CLIENT_OS, default=DEFAULT_CLIENT_OS): cv.string,
-        vol.Optional(CONF_CLIENT_VERSION, default=DEFAULT_CLIENT_VERSION): cv.string,
+        vol.Optional(
+            CONF_CLIENT_VERSION, default=DEFAULT_CLIENT_VERSION
+        ): cv.string,
         vol.Optional(CONF_USER_AGENT, default=DEFAULT_USER_AGENT): cv.string,
         vol.Optional(CONF_DEVICE_ID, default=None): vol.Any(
             vol.Equal(None),
@@ -109,10 +117,17 @@ def _unique_entries(value: List[Mapping[str, Any]]) -> List[Mapping[str, Any]]:
         if user in users:
             if users[user] is not None:
                 errors.append(
-                    vol.Invalid("duplicate unique key, first encounter", path=[users[user]])
+                    vol.Invalid(
+                        "duplicate unique key, first encounter",
+                        path=[users[user]],
+                    )
                 )
                 users[user] = None
-            errors.append(vol.Invalid("duplicate unique key, subsequent encounter", path=[i]))
+            errors.append(
+                vol.Invalid(
+                    "duplicate unique key, subsequent encounter", path=[i]
+                )
+            )
         else:
             users[user] = i
 
@@ -141,7 +156,9 @@ CONFIG_SCHEMA: Final = vol.Schema(
 
 
 @callback
-def _find_existing_entry(hass: HomeAssistantType, username: str) -> Optional[ConfigEntry]:
+def _find_existing_entry(
+    hass: HomeAssistantType, username: str
+) -> Optional[ConfigEntry]:
     existing_entries = hass.config_entries.async_entries(DOMAIN)
     for config_entry in existing_entries:
         if config_entry.data[CONF_USERNAME] == username:
@@ -153,7 +170,9 @@ _RE_USERNAME_MASK = re.compile(r"^(\W*)(.).*(.)$")
 
 def mask_username(username: str):
     parts = username.split("@")
-    return "@".join(map(lambda x: _RE_USERNAME_MASK.sub(r"\1\2***\3", x), parts))
+    return "@".join(
+        map(lambda x: _RE_USERNAME_MASK.sub(r"\1\2***\3", x), parts)
+    )
 
 
 def _patch_haffmpeg():
@@ -220,10 +239,14 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
         if existing_entry:
             if existing_entry.source == SOURCE_IMPORT:
                 yaml_config[key] = user_cfg
-                _LOGGER.debug(log_prefix + "Соответствующая конфигурационная запись существует")
+                _LOGGER.debug(
+                    log_prefix
+                    + "Соответствующая конфигурационная запись существует"
+                )
             else:
                 _LOGGER.warning(
-                    log_prefix + "Конфигурация из YAML переопределена другой конфигурацией!"
+                    log_prefix
+                    + "Конфигурация из YAML переопределена другой конфигурацией!"
                 )
             continue
 
@@ -246,7 +269,9 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
     return True
 
 
-async def async_setup_entry(hass: HomeAssistantType, config_entry: ConfigEntry):
+async def async_setup_entry(
+    hass: HomeAssistantType, config_entry: ConfigEntry
+):
     username = config_entry.data[CONF_USERNAME]
     unique_key = username
     config_entry_id = config_entry.entry_id
@@ -265,7 +290,9 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: ConfigEntry):
                 log_prefix
                 + f"Удаление записи {config_entry_id} после удаления из конфигурации YAML"
             )
-            hass.async_create_task(hass.config_entries.async_remove(config_entry_id))
+            hass.async_create_task(
+                hass.config_entries.async_remove(config_entry_id)
+            )
             return False
 
         user_cfg = yaml_config[unique_key]
@@ -280,7 +307,12 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: ConfigEntry):
                 }
             )
         except vol.Invalid as e:
-            _LOGGER.error(log_prefix + "Сохранённая конфигурация повреждена" + ": " + repr(e))
+            _LOGGER.error(
+                log_prefix
+                + "Сохранённая конфигурация повреждена"
+                + ": "
+                + repr(e)
+            )
             return False
 
     _LOGGER.info(log_prefix + "Применение конфигурационной записи")
@@ -293,7 +325,10 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: ConfigEntry):
     else:
         used_device_id_source = "заданный пользователем"
 
-    _LOGGER.debug(log_prefix + f"Используемый device_id: {device_id} ({used_device_id_source})")
+    _LOGGER.debug(
+        log_prefix
+        + f"Используемый device_id: {device_id} ({used_device_id_source})"
+    )
 
     api_object = PikIntercomAPI(
         username=username,
@@ -312,7 +347,9 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: ConfigEntry):
         await api_object.async_update_properties()
 
     except PikIntercomException as e:
-        _LOGGER.error(log_prefix + "Невозможно выполнить авторизацию: " + repr(e))
+        _LOGGER.error(
+            log_prefix + "Невозможно выполнить авторизацию: " + repr(e)
+        )
         await api_object.async_close()
         raise ConfigEntryNotReady(f"{e}")
 
@@ -323,7 +360,9 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: ConfigEntry):
         for apartment_object in apartments.values():
             tasks.append(apartment_object.async_update_intercoms())
 
-    done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
+    done, pending = await asyncio.wait(
+        tasks, return_when=asyncio.FIRST_EXCEPTION
+    )
     if pending:
         for task in pending:
             task.cancel()
@@ -332,7 +371,9 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: ConfigEntry):
     exc_first_task = first_task.exception()
     if exc_first_task:
         await api_object.async_close()
-        raise ConfigEntryNotReady(f"Ошибка при обновлении данных: {exc_first_task}")
+        raise ConfigEntryNotReady(
+            f"Ошибка при обновлении данных: {exc_first_task}"
+        )
 
     api_objects: Dict[str, "PikIntercomAPI"] = hass_data.setdefault(DOMAIN, {})
 
@@ -353,7 +394,9 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: ConfigEntry):
 
     # Create options update listener
     update_listener = config_entry.add_update_listener(async_reload_entry)
-    hass_data.setdefault(DATA_UPDATE_LISTENERS, {})[config_entry_id] = update_listener
+    hass_data.setdefault(DATA_UPDATE_LISTENERS, {})[
+        config_entry_id
+    ] = update_listener
 
     # Create reauth listener
     async def async_reauthenticate(*_):
@@ -368,7 +411,9 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry: ConfigEntry):
         f"(интервал: {auth_update_interval.total_seconds()} секунд)"
     )
 
-    hass.data.setdefault(DATA_REAUTHENTICATORS, {})[config_entry_id] = async_track_time_interval(
+    hass.data.setdefault(DATA_REAUTHENTICATORS, {})[
+        config_entry_id
+    ] = async_track_time_interval(
         hass,
         async_reauthenticate,
         auth_update_interval,
@@ -388,10 +433,15 @@ async def async_reload_entry(
     await hass.config_entries.async_reload(config_entry.entry_id)
 
 
-async def async_migrate_entry(hass: HomeAssistantType, config_entry: ConfigEntry) -> bool:
+async def async_migrate_entry(
+    hass: HomeAssistantType, config_entry: ConfigEntry
+) -> bool:
     username = config_entry.data[CONF_USERNAME]
 
-    from custom_components.pik_intercom.config_flow import PikIntercomConfigFlow, DEFAULT_OPTIONS
+    from custom_components.pik_intercom.config_flow import (
+        PikIntercomConfigFlow,
+        DEFAULT_OPTIONS,
+    )
 
     log_prefix = f"[{mask_username(username)}] "
     _LOGGER.info(
@@ -406,12 +456,16 @@ async def async_migrate_entry(hass: HomeAssistantType, config_entry: ConfigEntry
         options = DEFAULT_OPTIONS
 
     config_entry.version = PikIntercomConfigFlow.VERSION
-    hass.config_entries.async_update_entry(config_entry, data=data, options=options)
+    hass.config_entries.async_update_entry(
+        config_entry, data=data, options=options
+    )
 
     return True
 
 
-async def async_unload_entry(hass: HomeAssistantType, config_entry: ConfigEntry):
+async def async_unload_entry(
+    hass: HomeAssistantType, config_entry: ConfigEntry
+):
     log_prefix = f"[{mask_username(config_entry.data[CONF_USERNAME])}] "
     entry_id = config_entry.entry_id
 
@@ -424,11 +478,15 @@ async def async_unload_entry(hass: HomeAssistantType, config_entry: ConfigEntry)
 
     if unload_ok:
         # Cancel entity updaters
-        for update_identifier, cancel_func in hass.data[DATA_ENTITY_UPDATERS].pop(entry_id).items():
+        for update_identifier, cancel_func in (
+            hass.data[DATA_ENTITY_UPDATERS].pop(entry_id).items()
+        ):
             cancel_func()
 
         # Cancel reauthentication routines
-        reauthenticator: Callable = hass.data.get(DATA_REAUTHENTICATORS, {}).pop(entry_id, None)
+        reauthenticator: Callable = hass.data.get(
+            DATA_REAUTHENTICATORS, {}
+        ).pop(entry_id, None)
         if reauthenticator:
             reauthenticator()
 
@@ -437,7 +495,9 @@ async def async_unload_entry(hass: HomeAssistantType, config_entry: ConfigEntry)
         cancel_listener()
 
         # Close API object
-        api_object: PikIntercomAPI = hass.data.get(DOMAIN, {}).pop(entry_id, None)
+        api_object: PikIntercomAPI = hass.data.get(DOMAIN, {}).pop(
+            entry_id, None
+        )
         if api_object:
             await api_object.async_close()
 
@@ -450,6 +510,8 @@ async def async_unload_entry(hass: HomeAssistantType, config_entry: ConfigEntry)
         _LOGGER.info(log_prefix + "Интеграция выгружена")
 
     else:
-        _LOGGER.warning(log_prefix + "При выгрузке конфигурации произошла ошибка")
+        _LOGGER.warning(
+            log_prefix + "При выгрузке конфигурации произошла ошибка"
+        )
 
     return unload_ok

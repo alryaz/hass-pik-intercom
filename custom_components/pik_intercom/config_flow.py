@@ -1,5 +1,9 @@
 """Pik Intercom integration config and option flow handlers"""
-__all__ = ("PikIntercomConfigFlow", "PikIntercomOptionsFlow", "DEFAULT_OPTIONS")
+__all__ = (
+    "PikIntercomConfigFlow",
+    "PikIntercomOptionsFlow",
+    "DEFAULT_OPTIONS",
+)
 
 import logging
 import re
@@ -9,13 +13,21 @@ from typing import Any, Dict, Final, Optional
 
 import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.config_entries import ConfigEntry, ConfigFlow, OptionsFlow, SOURCE_IMPORT
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    OptionsFlow,
+    SOURCE_IMPORT,
+)
 from homeassistant.const import CONF_DEVICE_ID, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
 
 from custom_components.pik_intercom._base import phone_validator
-from custom_components.pik_intercom.api import PikIntercomAPI, PikIntercomException
+from custom_components.pik_intercom.api import (
+    PikIntercomAPI,
+    PikIntercomException,
+)
 from custom_components.pik_intercom.const import (
     CONF_AUTH_UPDATE_INTERVAL,
     CONF_CALL_SESSIONS_UPDATE_INTERVAL,
@@ -63,7 +75,9 @@ class PikIntercomConfigFlow(ConfigFlow, domain=DOMAIN):
         return f"+{username[1]} ({username[2:5]}) {username[5:8]}-{username[8:10]}-{username[10:]}"
 
     # Initial step for user interaction
-    async def async_step_user(self, user_input: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    async def async_step_user(
+        self, user_input: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """Handle a flow start."""
         errors = {}
         description_placeholders = {}
@@ -84,7 +98,9 @@ class PikIntercomConfigFlow(ConfigFlow, domain=DOMAIN):
 
             if not errors:
                 if self._check_entry_exists(username):
-                    return self.async_abort(reason="already_configured_service")
+                    return self.async_abort(
+                        reason="already_configured_service"
+                    )
 
                 async with PikIntercomAPI(
                     username=username,
@@ -115,7 +131,9 @@ class PikIntercomConfigFlow(ConfigFlow, domain=DOMAIN):
                                     title=self._make_entry_title(username),
                                     data={
                                         CONF_USERNAME: username,
-                                        CONF_PASSWORD: user_input[CONF_PASSWORD],
+                                        CONF_PASSWORD: user_input[
+                                            CONF_PASSWORD
+                                        ],
                                     },
                                     options=options,
                                 )
@@ -173,7 +191,9 @@ class PikIntercomOptionsFlow(OptionsFlow):
     def __init__(self, config_entry: ConfigEntry) -> None:
         self._config_entry = config_entry
 
-    async def async_step_init(self, user_input: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    async def async_step_init(
+        self, user_input: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         if self._config_entry.source == SOURCE_IMPORT:
             return self.async_abort(reason="yaml_config_unsupported")
 
@@ -182,7 +202,9 @@ class PikIntercomOptionsFlow(OptionsFlow):
         description_placeholders = {}
 
         interval_values = {
-            key: (user_input[key].total_seconds() if user_input else options[key])
+            key: (
+                user_input[key].total_seconds() if user_input else options[key]
+            )
             for key in (
                 CONF_INTERCOMS_UPDATE_INTERVAL,
                 CONF_CALL_SESSIONS_UPDATE_INTERVAL,
@@ -198,8 +220,14 @@ class PikIntercomOptionsFlow(OptionsFlow):
                 errors[CONF_DEVICE_ID] = "device_id_too_short"
 
             for interval_key, min_interval in (
-                (CONF_INTERCOMS_UPDATE_INTERVAL, MIN_INTERCOMS_UPDATE_INTERVAL),
-                (CONF_CALL_SESSIONS_UPDATE_INTERVAL, MIN_CALL_SESSIONS_UPDATE_INTERVAL),
+                (
+                    CONF_INTERCOMS_UPDATE_INTERVAL,
+                    MIN_INTERCOMS_UPDATE_INTERVAL,
+                ),
+                (
+                    CONF_CALL_SESSIONS_UPDATE_INTERVAL,
+                    MIN_CALL_SESSIONS_UPDATE_INTERVAL,
+                ),
                 (CONF_AUTH_UPDATE_INTERVAL, MIN_AUTH_UPDATE_INTERVAL),
             ):
                 if interval_values[interval_key] < min_interval:
@@ -225,7 +253,9 @@ class PikIntercomOptionsFlow(OptionsFlow):
             ): cv.positive_time_period_dict
             for interval_key, current_value in interval_values.items()
         }
-        schema_dict[vol.Required(CONF_DEVICE_ID, default=device_id)] = cv.string
+        schema_dict[
+            vol.Required(CONF_DEVICE_ID, default=device_id)
+        ] = cv.string
 
         return self.async_show_form(
             step_id="init",

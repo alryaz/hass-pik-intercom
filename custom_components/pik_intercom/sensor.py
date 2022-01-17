@@ -25,7 +25,9 @@ _LOGGER = logging.getLogger(__name__)
 
 
 # noinspection PyUnusedLocal
-async def async_setup_entry(hass: HomeAssistantType, config_entry, async_add_entities) -> bool:
+async def async_setup_entry(
+    hass: HomeAssistantType, config_entry, async_add_entities
+) -> bool:
     """Add a Pik Intercom sensors based on a config entry."""
 
     config_entry_id = config_entry.entry_id
@@ -39,24 +41,39 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry, async_add_ent
         True,
     )
 
-    _LOGGER.debug(f"[{config_entry_id}] Завершение инициализации платформы 'sensor'")
+    _LOGGER.debug(
+        f"[{config_entry_id}] Завершение инициализации платформы 'sensor'"
+    )
 
     return True
 
 
 class PikIntercomLastCallSessionSensor(BasePikIntercomEntity):
     def __init__(self, *args, **kwargs) -> None:
-        """Initialize the Pik Domofon intercom video stream."""
+        """Initialize the Pik Intercom intercom video stream."""
         super().__init__(*args, **kwargs)
 
         self.entity_id = "sensor.last_call_session"
         self._entity_updater: Optional[Callable] = None
 
+    @property
+    def _internal_object_identifier(self) -> str:
+        return f"last_call_session__{self.api_object.username}"
+
+    @property
+    def base_name(self) -> str:
+        return "Last Call Session"
+
+    async def async_self_update(self) -> None:
+        await self.api_object.async_update_call_sessions(1)
+
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
         hass = self.hass
         config_entry_id = self._config_entry_id
-        interval = hass.data[DATA_FINAL_CONFIG][config_entry_id][CONF_CALL_SESSIONS_UPDATE_INTERVAL]
+        interval = hass.data[DATA_FINAL_CONFIG][config_entry_id][
+            CONF_CALL_SESSIONS_UPDATE_INTERVAL
+        ]
 
         _LOGGER.debug(
             f"[{config_entry_id}] Scheduling {self.entity_id} updates "
@@ -76,13 +93,6 @@ class PikIntercomLastCallSessionSensor(BasePikIntercomEntity):
                 f"[{self._config_entry_id}] Cancelling {self.entity_id} scheduled updates"
             )
             self._entity_updater()
-
-    async def async_update(self) -> None:
-        await self.api_object.async_update_call_sessions(1)
-
-    @property
-    def unique_id(self) -> str:
-        return f"last_call_session_{self.api_object.username}"
 
     @property
     def update_config_key(self) -> str:
@@ -106,10 +116,6 @@ class PikIntercomLastCallSessionSensor(BasePikIntercomEntity):
         return "mdi:phone"
 
     @property
-    def name(self) -> str:
-        return "Last Call Session"
-
-    @property
     def extra_state_attributes(self) -> Optional[Mapping[str, Any]]:
         last_call_session = self.api_object.last_call_session
 
@@ -123,14 +129,20 @@ class PikIntercomLastCallSessionSensor(BasePikIntercomEntity):
             "call_number": last_call_session.call_number,
             "intercom_name": last_call_session.intercom_name,
             "photo_url": last_call_session.full_photo_url,
-            "answered_customer_device_ids": list(last_call_session.answered_customer_device_ids),
+            "answered_customer_device_ids": list(
+                last_call_session.answered_customer_device_ids
+            ),
             "hangup": last_call_session.hangup,
             "created_at": last_call_session.created_at.isoformat(),
             "notified_at": (
-                last_call_session.notified_at.isoformat() if last_call_session.notified_at else None
+                last_call_session.notified_at.isoformat()
+                if last_call_session.notified_at
+                else None
             ),
             "finished_at": (
-                last_call_session.finished_at.isoformat() if last_call_session.finished_at else None
+                last_call_session.finished_at.isoformat()
+                if last_call_session.finished_at
+                else None
             ),
         }
 
