@@ -113,18 +113,18 @@ pik_intercom:
 Данная возможность является экспериментальной; при возникновении ошибок,
 [создайте issue](https://github.com/alryaz/hass-pik-intercom/issues/new).
 
-### Открытие дверей &mdash; платформа `switch`
+### Открытие дверей &mdash; платформа `button`
 
 Объекты обладают одним из следующих форматов ID:
-- `switch.iot_relay_<ID реле>_unlocker` &mdash; встроенное в домофон Rubetek реле
-- `switch.property_intercom_<ID домофона>_unlocker` &mdash; домофон ПИК
+- `button.iot_relay_<ID реле>_unlocker` &mdash; встроенное в домофон Rubetek реле
+- `button.property_intercom_<ID домофона>_unlocker` &mdash; домофон ПИК
 
-Компонент открывает доступ к нескольким объектам на платформе `switch`, соответствующим
+Компонент открывает доступ к нескольким объектам на платформе `button`, соответствующим
 кнопкам открытия дверей, ассоциированных с домофоном.
 
-Чтобы открыть дверь домофона, достаточно воспользоваться службой `switch.turn_on`.
+Чтобы открыть дверь домофона, достаточно воспользоваться службой `button.press`.
 Более подробно почитать про действия выключатель возможно в
-[официальной документации](https://www.home-assistant.io/integrations/switch/).
+[официальной документации](https://www.home-assistant.io/integrations/button/).
 
 ### Последний звонок в дверь &mdash; платформа `sensor`
 

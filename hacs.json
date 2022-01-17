@@ -6,7 +6,7 @@
     "domains": [
         "camera",
         "sensor",
-        "switch"
+        "button"
     ],
     "country": "ru",
     "homeassistant": "2021.12.0",

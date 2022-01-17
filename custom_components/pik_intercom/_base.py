@@ -46,6 +46,8 @@ def phone_validator(phone_number: str) -> str:
 
 
 class BasePikIntercomEntity(Entity, ABC):
+    _attr_should_poll = False
+
     @property
     @abstractmethod
     def _internal_object_identifier(self) -> str:
@@ -84,10 +86,6 @@ class BasePikIntercomEntity(Entity, ABC):
     @property
     def name(self) -> str:
         return self.base_name
-
-    @property
-    def should_poll(self) -> bool:
-        return False
 
     @property
     def device_info(self) -> DeviceInfo:
