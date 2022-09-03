@@ -105,7 +105,7 @@ class PikIntercomLastCallSessionSensor(BasePikIntercomEntity):
         if last_call_session is None:
             return None
 
-        return last_call_session.updated_at.isoformat()
+        return last_call_session.notified_at.isoformat()
 
     @property
     def available(self) -> bool:
@@ -125,23 +125,19 @@ class PikIntercomLastCallSessionSensor(BasePikIntercomEntity):
         return {
             "id": last_call_session.id,
             "property_id": last_call_session.property_id,
+            "property_name": last_call_session.property_name,
             "intercom_id": last_call_session.intercom_id,
-            "call_number": last_call_session.call_number,
             "intercom_name": last_call_session.intercom_name,
             "photo_url": last_call_session.full_photo_url,
-            "answered_customer_device_ids": list(
-                last_call_session.answered_customer_device_ids
-            ),
-            "hangup": last_call_session.hangup,
-            "created_at": last_call_session.created_at.isoformat(),
-            "notified_at": (
-                last_call_session.notified_at.isoformat()
-                if last_call_session.notified_at
-                else None
-            ),
+            "notified_at": last_call_session.notified_at.isoformat(),
             "finished_at": (
                 last_call_session.finished_at.isoformat()
                 if last_call_session.finished_at
+                else None
+            ),
+            "pickedup_at": (
+                last_call_session.pickedup_at.isoformat()
+                if last_call_session.pickedup_at
                 else None
             ),
         }

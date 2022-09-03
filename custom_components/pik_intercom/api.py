@@ -23,7 +23,7 @@ import logging
 import random
 import string
 from abc import abstractmethod, ABC
-from datetime import datetime
+from datetime import date, datetime
 from types import MappingProxyType
 from typing import (
     Any,
@@ -655,7 +655,7 @@ class PikIntercomAPI:
                 iter(
                     sorted(
                         self._call_sessions.values(),
-                        key=lambda x: x.updated_at,
+                        key=lambda x: x.notified_at,
                         reverse=True,
                     )
                 )
@@ -666,7 +666,7 @@ class PikIntercomAPI:
     async def async_update_call_sessions(
         self, max_pages: Optional[int] = 10
     ) -> None:
-        sub_url = "/api/call_sessions"
+        sub_url = "/api/alfred/v1/personal/call_sessions"
         call_sessions = self._call_sessions
         page_number = 0
         last_call_session = self.last_call_session
@@ -677,14 +677,13 @@ class PikIntercomAPI:
         ):
             page_number += 1
 
-            resp_data, headers, request_counter = await self._async_get(
+            call_sessions_list, headers, request_counter = await self._async_get(
                 sub_url,
+                base_url=self.BASE_RUBETEK_URL,
                 title=f"call sessions fetching (page {page_number})",
                 authenticated=True,
-                params={"page": page_number},
+                params={"page": page_number, "q[s]": "created_at DESC"},
             )
-
-            call_sessions_list = resp_data.get("call_sessions", ())
 
             if not call_sessions_list:
                 _LOGGER.debug(
@@ -692,20 +691,17 @@ class PikIntercomAPI:
                 )
                 break
 
-            for call_session_data in call_sessions_list:
-                session_data = call_session_data["call_session"]
+            for session_data in call_sessions_list:
                 call_session_id = session_data["id"]
 
-                updated_at = datetime.fromisoformat(session_data["updated_at"])
+                notified_at = datetime.fromisoformat(session_data["notified_at"])
 
                 if (
                     requires_further_updates
                     and last_call_session
-                    and last_call_session.updated_at > updated_at
+                    and last_call_session.notified_at > notified_at
                 ):
                     requires_further_updates = False
-
-                created_at = datetime.fromisoformat(session_data["created_at"])
 
                 finished_at = (
                     datetime.fromisoformat(session_data["finished_at"])
@@ -713,55 +709,38 @@ class PikIntercomAPI:
                     else None
                 )
 
-                notified_at = (
-                    datetime.fromisoformat(session_data["notified_at"])
-                    if session_data.get("notified_at")
+                pickedup_at = (
+                    datetime.fromisoformat(session_data["pickedup_at"])
+                    if session_data.get("pickedup_at")
                     else None
                 )
 
-                answered_customer_device_ids = tuple(
-                    call_session_data.get("answered_customer_device_ids") or ()
-                )
-
-                try:
-                    call_session = call_sessions[call_session_id]
-
-                except KeyError:
+                if call_session_id not in call_sessions:
                     call_sessions[call_session_id] = PikCallSession(
                         api=self,
                         id=session_data["id"],
-                        property_id=session_data["property_id"],
+                        property_id=session_data["geo_unit_id"],
+                        property_name=session_data["geo_unit_short_name"],
                         intercom_id=session_data["intercom_id"],
-                        call_number=session_data["call_number"],
                         notified_at=notified_at,
-                        updated_at=updated_at,
-                        created_at=created_at,
                         finished_at=finished_at,
-                        hangup=call_session_data["hangup"],
-                        intercom_name=call_session_data["intercom_name"],
-                        photo_url=call_session_data.get("photo_url") or None,
-                        answered_customer_device_ids=answered_customer_device_ids,
+                        pickedup_at=pickedup_at,
+                        intercom_name=session_data["intercom_name"],
+                        photo_url=session_data.get("snapshot_url") or None
                     )
-
                 else:
+                    call_session = call_sessions[call_session_id]
                     call_session.api = self
                     call_session.id = session_data["id"]
-                    call_session.property_id = session_data["property_id"]
+                    call_session.property_id = session_data["geo_unit_id"]
+                    call_session.property_name = session_data["geo_unit_short_name"]
                     call_session.intercom_id = session_data["intercom_id"]
-                    call_session.call_number = session_data["call_number"]
+                    call_session.intercom_name = session_data["intercom_name"]
                     call_session.notified_at = notified_at
-                    call_session.updated_at = updated_at
-                    call_session.created_at = created_at
                     call_session.finished_at = finished_at
-                    call_session.hangup = call_session_data["hangup"]
-                    call_session.intercom_name = call_session_data[
-                        "intercom_name"
-                    ]
+                    call_session.pickedup_at = pickedup_at
                     call_session.photo_url = (
-                        call_session_data.get("photo_url") or None
-                    )
-                    call_session.answered_customer_device_ids = (
-                        answered_customer_device_ids
+                        session_data.get("snapshot_url") or None
                     )
 
             _LOGGER.debug(
@@ -871,24 +850,17 @@ class PikProperty(_BaseObject):
 class PikCallSession(_BaseObject):
     id: int = attr.ib()
     property_id: int = attr.ib()
+    property_name: str = attr.ib()
     intercom_id: int = attr.ib()
-    call_number: str = attr.ib()
     intercom_name: str = attr.ib()
     photo_url: Optional[str] = attr.ib()
-    answered_customer_device_ids: Tuple[str] = attr.ib()
-    hangup: bool = attr.ib()
-    created_at: datetime = attr.ib()
-    updated_at: datetime = attr.ib()
     notified_at: Optional[datetime] = attr.ib(default=None)
+    pickedup_at: Optional[datetime] = attr.ib(default=None)
     finished_at: Optional[datetime] = attr.ib(default=None)
 
     @property
     def full_photo_url(self) -> Optional[str]:
-        photo_url = self.photo_url
-        if photo_url is None:
-            return None
-
-        return self.api.BASE_PIK_URL + photo_url
+        return self.photo_url
 
 
 @attr.s(slots=True)
