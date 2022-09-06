@@ -136,7 +136,7 @@ class BasePikIntercomPropertyDeviceEntity(BasePikIntercomEntity):
             {
                 "manufacturer": intercom_device.device_category,
                 "model": intercom_device.kind + " / " + intercom_device.mode,
-                "suggested_area": f"Property {intercom_device.property_id}",
+                # "suggested_area": f"Property {intercom_device.property_id}",
             }
         )
 
