@@ -353,12 +353,12 @@ async def async_setup_entry(
         await api_object.async_close()
         raise ConfigEntryNotReady(f"{e}")
 
-    tasks = [api_object.async_update_personal_intercoms()]
+    tasks = [asyncio.create_task(api_object.async_update_personal_intercoms())]
 
     apartments = api_object.properties
     if apartments:
         for apartment_object in apartments.values():
-            tasks.append(apartment_object.async_update_intercoms())
+            tasks.append(asyncio.create_task(apartment_object.async_update_intercoms()))
 
     done, pending = await asyncio.wait(
         tasks, return_when=asyncio.FIRST_EXCEPTION
