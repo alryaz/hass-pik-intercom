@@ -9,6 +9,6 @@
         "button"
     ],
     "country": "ru",
-    "homeassistant": "2023.06.1",
+    "homeassistant": "2023.6.0",
     "iot_class": "Cloud Polling"
 }
