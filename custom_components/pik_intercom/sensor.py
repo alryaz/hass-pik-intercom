@@ -10,7 +10,7 @@ from typing import (
     Optional,
 )
 
-from homeassistant.const import DEVICE_CLASS_TIMESTAMP
+from homeassistant.components.sensor.const import SensorDeviceClass
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.typing import HomeAssistantType
 
@@ -144,4 +144,4 @@ class PikIntercomLastCallSessionSensor(BasePikIntercomEntity):
 
     @property
     def device_class(self) -> str:
-        return DEVICE_CLASS_TIMESTAMP
+        return SensorDeviceClass.TIMESTAMP
