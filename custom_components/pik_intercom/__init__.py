@@ -361,7 +361,8 @@ async def async_setup_entry(
             tasks.append(apartment_object.async_update_intercoms())
 
     done, pending = await asyncio.wait(
-        tasks, return_when=asyncio.FIRST_EXCEPTION
+        [hass.loop.create_task(task) for task in tasks],
+        return_when=asyncio.FIRST_EXCEPTION,
     )
     if pending:
         for task in pending:
