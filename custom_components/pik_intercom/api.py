@@ -296,10 +296,9 @@ class PikIntercomAPI:
     async def async_authenticate(self) -> None:
         resp_data, headers, request_counter = await self._async_post(
             "/api/customers/sign_in",
-            data={
-                "account[phone]": self._username,
-                "account[password]": self._password,
-                "customer_device[uid]": self.device_id,
+            json={
+                "account": { "phone": self._username, "password": self._password },
+                "customer_device": { "uid": self.device_id },
             },
             title="authentication",
         )
