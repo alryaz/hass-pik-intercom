@@ -71,9 +71,7 @@ CONFIG_ENTRY_SCHEMA: Final = vol.Schema(
             description="Intercoms update interval",
         ): vol.All(
             cv.positive_time_period,
-            vol.Clamp(
-                min=timedelta(seconds=MIN_CALL_SESSIONS_UPDATE_INTERVAL)
-            ),
+            vol.Clamp(min=timedelta(seconds=MIN_CALL_SESSIONS_UPDATE_INTERVAL)),
         ),
         vol.Optional(
             CONF_CALL_SESSIONS_UPDATE_INTERVAL,
@@ -81,9 +79,7 @@ CONFIG_ENTRY_SCHEMA: Final = vol.Schema(
             description="Call sessions update interval",
         ): vol.All(
             cv.positive_time_period,
-            vol.Clamp(
-                min=timedelta(seconds=MIN_CALL_SESSIONS_UPDATE_INTERVAL)
-            ),
+            vol.Clamp(min=timedelta(seconds=MIN_CALL_SESSIONS_UPDATE_INTERVAL)),
         ),
         vol.Optional(
             CONF_AUTH_UPDATE_INTERVAL,
@@ -269,9 +265,7 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
     return True
 
 
-async def async_setup_entry(
-    hass: HomeAssistantType, config_entry: ConfigEntry
-):
+async def async_setup_entry(hass: HomeAssistantType, config_entry: ConfigEntry):
     username = config_entry.data[CONF_USERNAME]
     unique_key = username
     config_entry_id = config_entry.entry_id
@@ -353,12 +347,16 @@ async def async_setup_entry(
         await api_object.async_close()
         raise ConfigEntryNotReady(f"{e}")
 
-    tasks = [hass.loop.create_task(api_object.async_update_personal_intercoms())]
+    tasks = [
+        hass.loop.create_task(api_object.async_update_personal_intercoms())
+    ]
 
     apartments = api_object.properties
     if apartments:
         for apartment_object in apartments.values():
-            tasks.append(hass.loop.create_task(apartment_object.async_update_intercoms()))
+            tasks.append(
+                hass.loop.create_task(apartment_object.async_update_intercoms())
+            )
 
     done, pending = await asyncio.wait(
         tasks,

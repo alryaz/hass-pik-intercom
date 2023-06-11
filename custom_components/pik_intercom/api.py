@@ -23,7 +23,7 @@ import logging
 import random
 import string
 from abc import abstractmethod, ABC
-from datetime import date, datetime
+from datetime import datetime
 from types import MappingProxyType
 from typing import (
     Any,
@@ -220,9 +220,7 @@ class PikIntercomAPI:
                 log_prefix + f"Could not perform {title}, "
                 f"waited for {self._session.timeout.total} seconds"
             )
-            raise PikIntercomException(
-                f"Could not perform {title} (timed out)"
-            )
+            raise PikIntercomException(f"Could not perform {title} (timed out)")
 
         except aiohttp.ClientError as e:
             _LOGGER.error(
@@ -677,7 +675,11 @@ class PikIntercomAPI:
         ):
             page_number += 1
 
-            call_sessions_list, headers, request_counter = await self._async_get(
+            (
+                call_sessions_list,
+                headers,
+                request_counter,
+            ) = await self._async_get(
                 sub_url,
                 base_url=self.BASE_RUBETEK_URL,
                 title=f"call sessions fetching (page {page_number})",
@@ -694,7 +696,9 @@ class PikIntercomAPI:
             for session_data in call_sessions_list:
                 call_session_id = session_data["id"]
 
-                notified_at = datetime.fromisoformat(session_data["notified_at"])
+                notified_at = datetime.fromisoformat(
+                    session_data["notified_at"]
+                )
 
                 if (
                     requires_further_updates
@@ -726,14 +730,16 @@ class PikIntercomAPI:
                         finished_at=finished_at,
                         pickedup_at=pickedup_at,
                         intercom_name=session_data["intercom_name"],
-                        photo_url=session_data.get("snapshot_url") or None
+                        photo_url=session_data.get("snapshot_url") or None,
                     )
                 else:
                     call_session = call_sessions[call_session_id]
                     call_session.api = self
                     call_session.id = session_data["id"]
                     call_session.property_id = session_data["geo_unit_id"]
-                    call_session.property_name = session_data["geo_unit_short_name"]
+                    call_session.property_name = session_data[
+                        "geo_unit_short_name"
+                    ]
                     call_session.intercom_id = session_data["intercom_id"]
                     call_session.intercom_name = session_data["intercom_name"]
                     call_session.notified_at = notified_at
@@ -790,9 +796,7 @@ class PikObjectWithSnapshot(_BaseObject, ABC):
                 log_prefix + f"Could not perform {title}, "
                 f"waited for {api.session.timeout.total} seconds"
             )
-            raise PikIntercomException(
-                f"Could not perform {title} (timed out)"
-            )
+            raise PikIntercomException(f"Could not perform {title} (timed out)")
 
         except aiohttp.ClientError as e:
             _LOGGER.error(
@@ -882,9 +886,7 @@ class PikPropertyDevice(PikObjectWithSnapshot, PikObjectWithVideo):
     face_detection: Optional[bool] = attr.ib(default=None)
     video: Optional[MultiDict[str]] = attr.ib(default=None)
     photo_url: Optional[str] = attr.ib(default=None)
-    property_id: Optional[int] = attr.ib(
-        default=None
-    )  # Non-standard attribute
+    property_id: Optional[int] = attr.ib(default=None)  # Non-standard attribute
 
     @property
     def has_camera(self) -> bool:

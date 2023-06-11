@@ -98,9 +98,7 @@ class PikIntercomConfigFlow(ConfigFlow, domain=DOMAIN):
 
             if not errors:
                 if self._check_entry_exists(username):
-                    return self.async_abort(
-                        reason="already_configured_service"
-                    )
+                    return self.async_abort(reason="already_configured_service")
 
                 async with PikIntercomAPI(
                     username=username,
@@ -253,9 +251,7 @@ class PikIntercomOptionsFlow(OptionsFlow):
             ): cv.positive_time_period_dict
             for interval_key, current_value in interval_values.items()
         }
-        schema_dict[
-            vol.Required(CONF_DEVICE_ID, default=device_id)
-        ] = cv.string
+        schema_dict[vol.Required(CONF_DEVICE_ID, default=device_id)] = cv.string
 
         return self.async_show_form(
             step_id="init",

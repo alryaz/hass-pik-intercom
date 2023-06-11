@@ -158,9 +158,7 @@ class _BaseIntercomCamera(BasePikIntercomEntity, Camera, ABC):
                 else:
                     return snapshot_image
             else:
-                _LOGGER.debug(
-                    log_prefix + f"Ссылка на изображение отсутствует"
-                )
+                _LOGGER.debug(log_prefix + f"Ссылка на изображение отсутствует")
 
         if isinstance(internal_object, PikObjectWithVideo):
             # Attempt to retrieve snapshot image using RTSP stream

@@ -1,16 +1,16 @@
 {
-    "domain": "pik_intercom",
-    "name": "PIK Intercom / ПИК Домофон",
-    "documentation": "https://github.com/alryaz/hass-pik-intercom",
-    "issue_tracker": "https://github.com/alryaz/hass-pik-intercom/issues",
-    "dependencies": [
-        "ffmpeg"
-    ],
-    "version": "1.1.2",
-    "codeowners": [
-        "@alryaz"
-    ],
-    "requirements": [],
-    "config_flow": true,
-    "iot_class": "cloud_polling"
+  "domain": "pik_intercom",
+  "name": "PIK Intercom / ПИК Домофон",
+  "documentation": "https://github.com/alryaz/hass-pik-intercom",
+  "issue_tracker": "https://github.com/alryaz/hass-pik-intercom/issues",
+  "dependencies": [
+    "ffmpeg"
+  ],
+  "version": "1.1.2",
+  "codeowners": [
+    "@alryaz"
+  ],
+  "requirements": [],
+  "config_flow": true,
+  "iot_class": "cloud_polling"
 }
