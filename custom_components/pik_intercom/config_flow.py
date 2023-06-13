@@ -7,48 +7,54 @@ __all__ = (
 
 import logging
 import re
+from binascii import b2a_hex
 from datetime import timedelta
-from types import MappingProxyType
-from typing import Any, Dict, Final, Optional
+from os import urandom
+from typing import Any, Dict, Final, Optional, Mapping
 
 import voluptuous as vol
-from homeassistant import config_entries
 from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
     OptionsFlow,
     SOURCE_IMPORT,
+    CONN_CLASS_CLOUD_POLL,
 )
-from homeassistant.const import CONF_DEVICE_ID, CONF_PASSWORD, CONF_USERNAME
+from homeassistant.const import (
+    CONF_DEVICE_ID,
+    CONF_PASSWORD,
+    CONF_USERNAME,
+    CONF_VERIFY_SSL,
+)
 from homeassistant.core import callback
+from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from custom_components.pik_intercom._base import phone_validator
-from custom_components.pik_intercom.api import (
-    PikIntercomAPI,
-    PikIntercomException,
-)
-from custom_components.pik_intercom.const import (
-    CONF_AUTH_UPDATE_INTERVAL,
+from .api import PikIntercomAPI, PikIntercomException
+from .const import (
     CONF_CALL_SESSIONS_UPDATE_INTERVAL,
     CONF_INTERCOMS_UPDATE_INTERVAL,
-    DEFAULT_AUTH_UPDATE_INTERVAL,
-    DEFAULT_CALL_SESSIONS_UPDATE_INTERVAL,
-    DEFAULT_INTERCOMS_UPDATE_INTERVAL,
     DOMAIN,
     MIN_AUTH_UPDATE_INTERVAL,
     MIN_CALL_SESSIONS_UPDATE_INTERVAL,
     MIN_DEVICE_ID_LENGTH,
     MIN_INTERCOMS_UPDATE_INTERVAL,
+    DEFAULT_INTERCOMS_UPDATE_INTERVAL,
+    DEFAULT_CALL_SESSIONS_UPDATE_INTERVAL,
+    DEFAULT_AUTH_UPDATE_INTERVAL,
+    CONF_AUTH_UPDATE_INTERVAL,
 )
+from .helpers import phone_validator
 
 _LOGGER: Final = logging.getLogger(__name__)
 
-DEFAULT_OPTIONS: Final = MappingProxyType(
+STEP_USER_DATA_SCHEMA = vol.Schema(
     {
-        CONF_INTERCOMS_UPDATE_INTERVAL: DEFAULT_INTERCOMS_UPDATE_INTERVAL,
-        CONF_CALL_SESSIONS_UPDATE_INTERVAL: DEFAULT_CALL_SESSIONS_UPDATE_INTERVAL,
-        CONF_AUTH_UPDATE_INTERVAL: DEFAULT_AUTH_UPDATE_INTERVAL,
+        vol.Required(CONF_USERNAME): str,
+        vol.Required(CONF_PASSWORD): str,
+        vol.Required(CONF_DEVICE_ID): str,
+        vol.Optional(CONF_VERIFY_SSL, default=True): bool,
     }
 )
 
@@ -56,128 +62,92 @@ DEFAULT_OPTIONS: Final = MappingProxyType(
 class PikIntercomConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Inter RAO config entries."""
 
-    VERSION = 2
-    CONNECTION_CLASS = config_entries.CONN_CLASS_CLOUD_POLL
+    VERSION = 3
+    CONNECTION_CLASS = CONN_CLASS_CLOUD_POLL
 
-    def _check_entry_exists(self, username: str):
-        current_entries = self._async_current_entries()
+    async def async_submit_entry(self, user_input: Mapping[str, Any]) -> FlowResult:
+        username = user_input[CONF_USERNAME]
 
-        for config_entry in current_entries:
-            if config_entry.data[CONF_USERNAME] == username:
-                return True
+        # Check if entry with given username already exists
+        await self.async_set_unique_id(username)
+        self._abort_if_unique_id_configured()
 
-        return False
-
-    @staticmethod
-    def _make_entry_title(username: str) -> str:
-        if "@" in username:
-            return username
-        return f"+{username[1]} ({username[2:5]}) {username[5:8]}-{username[8:10]}-{username[10:]}"
+        # Create configuration entry
+        return self.async_create_entry(
+            title=(
+                username
+                if "@" in username
+                else (f"+{username[1]} ({username[2:5]}) " f"{username[5:8]}-{username[8:10]}-{username[10:]}")
+            ),
+            data={
+                CONF_USERNAME: username,
+                CONF_PASSWORD: user_input[CONF_PASSWORD],
+            },
+            options={
+                CONF_DEVICE_ID: user_input[CONF_DEVICE_ID],
+                CONF_CALL_SESSIONS_UPDATE_INTERVAL: DEFAULT_CALL_SESSIONS_UPDATE_INTERVAL,
+                CONF_INTERCOMS_UPDATE_INTERVAL: DEFAULT_INTERCOMS_UPDATE_INTERVAL,
+                CONF_AUTH_UPDATE_INTERVAL: DEFAULT_AUTH_UPDATE_INTERVAL,
+                CONF_VERIFY_SSL: user_input[CONF_VERIFY_SSL],
+            },
+        )
 
     # Initial step for user interaction
-    async def async_step_user(
-        self, user_input: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+    async def async_step_user(self, user_input: Optional[Dict[str, Any]] = None) -> FlowResult:
         """Handle a flow start."""
+        if not user_input:
+            return self.async_show_form(
+                step_id="user",
+                data_schema=self.add_suggested_values_to_schema(
+                    STEP_USER_DATA_SCHEMA,
+                    suggested_values={CONF_DEVICE_ID: b2a_hex(urandom(15)).decode("ascii")},
+                ),
+            )
+
         errors = {}
         description_placeholders = {}
 
-        if user_input:
-            username = user_input[CONF_USERNAME]
+        username = user_input[CONF_USERNAME]
 
-            if "@" in username:
-                try:
-                    username = vol.Email(username)
-                except vol.Invalid:
-                    errors[CONF_USERNAME] = "bad_email_format"
-            else:
-                try:
-                    username = phone_validator(username)
-                except vol.Invalid:
-                    errors[CONF_USERNAME] = "bad_phone_format"
-
-            if not errors:
-                if self._check_entry_exists(username):
-                    return self.async_abort(reason="already_configured_service")
-
-                async with PikIntercomAPI(
-                    username=username,
-                    password=user_input[CONF_PASSWORD],
-                    device_id=user_input[CONF_DEVICE_ID],
-                ) as api:
-                    user_input[CONF_DEVICE_ID] = api.device_id
-
-                    try:
-                        await api.async_authenticate()
-                    except PikIntercomException as e:
-                        _LOGGER.error(f"Authentication error: {repr(e)}")
-                        errors["base"] = "authentication_error"
-                        description_placeholders["error"] = str(e)
-                    else:
-                        try:
-                            await api.async_update_properties()
-
-                        except PikIntercomException as e:
-                            _LOGGER.error(f"Request error: {repr(e)}")
-                            errors["base"] = "update_accounts_error"
-                            description_placeholders["error"] = str(e)
-                        else:
-                            if api.properties:
-                                options = dict(DEFAULT_OPTIONS)
-                                options[CONF_DEVICE_ID] = api.device_id
-                                return self.async_create_entry(
-                                    title=self._make_entry_title(username),
-                                    data={
-                                        CONF_USERNAME: username,
-                                        CONF_PASSWORD: user_input[
-                                            CONF_PASSWORD
-                                        ],
-                                    },
-                                    options=options,
-                                )
-                            errors["base"] = "empty_account"
+        if "@" in username:
+            try:
+                username = vol.Email(username)
+            except vol.Invalid:
+                errors[CONF_USERNAME] = "bad_email_format"
         else:
-            user_input = {}
+            try:
+                username = phone_validator(username)
+            except vol.Invalid:
+                errors[CONF_USERNAME] = "bad_phone_format"
+
+        if not errors:
+            api = PikIntercomAPI(
+                username=username,
+                password=user_input[CONF_PASSWORD],
+                session=async_get_clientsession(self.hass),
+                device_id=user_input[CONF_DEVICE_ID],
+            )
+
+            try:
+                await api.async_authenticate()
+            except PikIntercomException as exc:
+                _LOGGER.error(f"Authentication error: {exc}")
+                errors["base"] = "authentication_error"
+                description_placeholders["error"] = str(exc)
+            else:
+                user_input[CONF_USERNAME] = username
+                return await self.async_submit_entry(user_input)
 
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        CONF_USERNAME,
-                        default=user_input.get(CONF_USERNAME, ""),
-                    ): cv.string,
-                    vol.Required(
-                        CONF_PASSWORD,
-                        default=user_input.get(CONF_PASSWORD, ""),
-                    ): cv.string,
-                    vol.Optional(
-                        CONF_DEVICE_ID,
-                        default=user_input.get(CONF_DEVICE_ID, ""),
-                    ): cv.string,
-                }
-            ),
+            data_schema=self.add_suggested_values_to_schema(STEP_USER_DATA_SCHEMA, suggested_values=user_input),
             errors=errors,
             description_placeholders=description_placeholders,
         )
 
-    async def async_step_import(
-        self, user_input: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        _LOGGER.debug("Executing import step: %s", user_input)
-
-        if user_input is None:
-            return self.async_abort(reason="unknown_error")
-
-        username = user_input[CONF_USERNAME]
-
-        if self._check_entry_exists(username):
-            return self.async_abort(reason="already_exists")
-
-        return self.async_create_entry(
-            title=self._make_entry_title(username),
-            data={CONF_USERNAME: username},
-        )
+    async def async_step_import(self, user_input: Optional[Dict[str, Any]] = None) -> FlowResult:
+        """Import configuration entries from YAML"""
+        return (await self.async_submit_entry(user_input)) if user_input else self.async_abort(reason="unknown_error")
 
     @staticmethod
     @callback
@@ -189,9 +159,7 @@ class PikIntercomOptionsFlow(OptionsFlow):
     def __init__(self, config_entry: ConfigEntry) -> None:
         self._config_entry = config_entry
 
-    async def async_step_init(
-        self, user_input: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+    async def async_step_init(self, user_input: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         if self._config_entry.source == SOURCE_IMPORT:
             return self.async_abort(reason="yaml_config_unsupported")
 
@@ -200,9 +168,7 @@ class PikIntercomOptionsFlow(OptionsFlow):
         description_placeholders = {}
 
         interval_values = {
-            key: (
-                user_input[key].total_seconds() if user_input else options[key]
-            )
+            key: (user_input[key].total_seconds() if user_input else options[key])
             for key in (
                 CONF_INTERCOMS_UPDATE_INTERVAL,
                 CONF_CALL_SESSIONS_UPDATE_INTERVAL,
@@ -230,9 +196,7 @@ class PikIntercomOptionsFlow(OptionsFlow):
             ):
                 if interval_values[interval_key] < min_interval:
                     errors[interval_key] = interval_key + "_too_low"
-                    description_placeholders["min_" + interval_key] = str(
-                        timedelta(seconds=min_interval)
-                    )
+                    description_placeholders["min_" + interval_key] = str(timedelta(seconds=min_interval))
 
             if not errors:
                 interval_values[CONF_DEVICE_ID] = device_id

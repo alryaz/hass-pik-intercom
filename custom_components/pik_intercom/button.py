@@ -9,85 +9,97 @@ __all__ = (
 import asyncio
 import logging
 from abc import abstractmethod, ABC
+from functools import partial
+from typing import Dict, Type, Mapping
 
 from homeassistant.components.button import ButtonEntity
-from homeassistant.helpers.typing import HomeAssistantType
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from custom_components.pik_intercom._base import (
+from custom_components.pik_intercom.api import PikObjectWithUnlocker
+from custom_components.pik_intercom.const import DOMAIN
+from custom_components.pik_intercom.entity import (
+    BasePikIntercomCoordinatorEntity,
     BasePikIntercomPropertyDeviceEntity,
     BasePikIntercomIotRelayEntity,
-    BasePikIntercomEntity,
+    PikIntercomIotIntercomsUpdateCoordinator,
+    PikIntercomPropertyIntercomsUpdateCoordinator,
 )
-from custom_components.pik_intercom.api import PikIntercomAPI
-from custom_components.pik_intercom.const import DOMAIN
 
 _LOGGER: logging.Logger = logging.getLogger(__name__)
 
 
+@callback
+def async_process_intercoms_generic(
+    entity_cls: Type["_BaseUnlockerButton"],
+    objects_dict: Mapping[int, PikObjectWithUnlocker],
+    coordinator: PikIntercomIotIntercomsUpdateCoordinator,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    entry_id = coordinator.config_entry.entry_id
+    try:
+        entities: Dict[int, "_BaseUnlockerButton"] = getattr(coordinator, "unlocker_button_entities")
+    except AttributeError:
+        setattr(coordinator, "unlocker_button_entities", entities := {})
+
+    new_entities = []
+    for item_id, item in objects_dict.items():
+        if item_id not in entities:
+            _LOGGER.debug(f"[{entry_id}] Adding unlocker for {item}")
+            current_sensor = entity_cls(coordinator, device=item)
+            entities[item_id] = current_sensor
+            new_entities.append(current_sensor)
+
+    if new_entities:
+        _LOGGER.debug(f"[{entry_id}] Adding {len(new_entities)} new button entities")
+        async_add_entities(new_entities)
+
+
 async def async_setup_entry(
-    hass: HomeAssistantType, config_entry, async_add_entities
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
 ) -> bool:
     """Add a Pik Intercom IP intercom from a config entry."""
 
-    config_entry_id = config_entry.entry_id
+    for coordinator in hass.data[DOMAIN][entry.entry_id]:
+        # Add update listeners to meter entity
+        if isinstance(coordinator, PikIntercomIotIntercomsUpdateCoordinator):
+            entity_cls = PikIntercomIotRelayUnlockerButton
+            objects_dict = coordinator.api_object.iot_relays
+        elif isinstance(coordinator, PikIntercomPropertyIntercomsUpdateCoordinator):
+            entity_cls = PikIntercomPropertyPropertyDeviceUnlockerButton
+            objects_dict = coordinator.api_object.devices
+        else:
+            continue
 
-    log_prefix = f"[{config_entry_id}] "
+        # Run first time
+        async_process_intercoms_generic(entity_cls, objects_dict, coordinator, async_add_entities)
 
-    _LOGGER.debug(log_prefix + "Настройка платформы 'button'")
-
-    api: PikIntercomAPI = hass.data[DOMAIN][config_entry_id]
-
-    # Add Intercom Entities
-    new_property_device_entities = [
-        PikIntercomPropertyPropertyDeviceUnlockerButton(
-            hass, config_entry_id, intercom_device
+        # Add listener for future updates
+        coordinator.async_add_listener(
+            partial(
+                async_process_intercoms_generic,
+                entity_cls,
+                objects_dict,
+                coordinator,
+                async_add_entities,
+            )
         )
-        for intercom_device in api.devices.values()
-    ]
-
-    _LOGGER.debug(
-        log_prefix + f"Будут добавлены {len(new_property_device_entities)} "
-        f"объектов открытия по владениям"
-    )
-
-    # Add IoT Relays
-    new_iot_relay_entities = [
-        PikIntercomIotRelayUnlockerButton(hass, config_entry_id, iot_relay)
-        for iot_relay in api.iot_relays.values()
-    ]
-
-    _LOGGER.debug(
-        log_prefix + f"Будут добавлены {len(new_property_device_entities)} "
-        f"IoT-объектов открытия"
-    )
-
-    async_add_entities(
-        (*new_property_device_entities, *new_iot_relay_entities), True
-    )
-
-    _LOGGER.debug(log_prefix + "Завершение инициализации платформы 'button'")
 
     return True
 
 
-class _BaseUnlockerButton(BasePikIntercomEntity, ButtonEntity, ABC):
+class _BaseUnlockerButton(BasePikIntercomCoordinatorEntity, ButtonEntity, ABC):
     """Base class for unlocking Intercom relays"""
 
-    _attr_icon: str = "mdi:door-closed-lock"
+    _attr_icon = "mdi:door-closed-lock"
+    _internal_object: PikObjectWithUnlocker
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         ButtonEntity.__init__(self)
-
-        self.entity_id = f"button.{self._internal_object_identifier.replace('__', '_')}_unlocker"
-
-    @property
-    def name(self) -> str:
-        return self.base_name + " Открытие"
-
-    @property
-    def unique_id(self) -> str:
-        return f"intercom_unlocker__{self._internal_object_identifier}"
 
     def press(self) -> None:
         return asyncio.run_coroutine_threadsafe(
@@ -95,24 +107,21 @@ class _BaseUnlockerButton(BasePikIntercomEntity, ButtonEntity, ABC):
             self.hass.loop,
         ).result()
 
-    @abstractmethod
+    def _update_attr(self) -> None:
+        super()._update_attr()
+        self._attr_name += " Unlocker"
+
     async def async_press(self) -> None:
-        raise NotImplementedError
+        await self._internal_object.async_unlock()
 
 
-class PikIntercomPropertyPropertyDeviceUnlockerButton(
-    _BaseUnlockerButton, BasePikIntercomPropertyDeviceEntity
-):
+class PikIntercomPropertyPropertyDeviceUnlockerButton(BasePikIntercomPropertyDeviceEntity, _BaseUnlockerButton):
     """Property Intercom Unlocker Adapter"""
 
-    async def async_press(self) -> None:
-        await self._intercom_device.async_unlock()
+    UNIQUE_ID_FORMAT = BasePikIntercomPropertyDeviceEntity.UNIQUE_ID_FORMAT + "__unlocker"
 
 
-class PikIntercomIotRelayUnlockerButton(
-    _BaseUnlockerButton, BasePikIntercomIotRelayEntity
-):
+class PikIntercomIotRelayUnlockerButton(BasePikIntercomIotRelayEntity, _BaseUnlockerButton):
     """IoT Relay Unlocker Adapter"""
 
-    async def async_press(self) -> None:
-        await self._iot_relay.async_unlock()
+    UNIQUE_ID_FORMAT = BasePikIntercomIotRelayEntity.UNIQUE_ID_FORMAT + "__unlocker"

@@ -8,122 +8,205 @@ __all__ = (
 
 import asyncio
 import logging
-from abc import abstractmethod, ABC
-from typing import Any, Callable, Mapping, Optional, Union, Dict, List
+from abc import ABC
+from functools import partial
+from typing import (
+    Optional,
+    Union,
+    TypeVar,
+    Generic,
+)
 
-import async_timeout
 from homeassistant.components import ffmpeg
 from homeassistant.components.camera import (
-    CAMERA_STREAM_SOURCE_TIMEOUT,
     Camera,
-    SUPPORT_STREAM,
+    CameraEntityFeature,
 )
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.typing import HomeAssistantType
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from custom_components.pik_intercom._base import (
-    BasePikIntercomPropertyDeviceEntity,
-    BasePikIntercomEntity,
-    BasePikIntercomIotRelayEntity,
-    BasePikIntercomIotIntercomEntity,
-)
 from custom_components.pik_intercom.api import (
-    PikIntercomAPI,
     PikIntercomException,
     PikObjectWithVideo,
     PikObjectWithSnapshot,
 )
 from custom_components.pik_intercom.const import DOMAIN
+from custom_components.pik_intercom.entity import (
+    BasePikIntercomCoordinatorEntity,
+    BasePikIntercomPropertyDeviceEntity,
+    BasePikIntercomIotIntercomEntity,
+    BasePikIntercomIotRelayEntity,
+    PikIntercomIotIntercomsUpdateCoordinator,
+    PikIntercomIotCamerasUpdateCoordinator,
+    PikIntercomPropertyIntercomsUpdateCoordinator,
+    BasePikIntercomIotCameraEntity,
+)
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
+AnyCameraType = Union[PikObjectWithVideo, PikObjectWithSnapshot]
+
+
+@callback
+def async_add_new_iot_cameras(
+    coordinator: PikIntercomIotCamerasUpdateCoordinator,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    try:
+        entities = getattr(coordinator, "camera_entities")
+    except AttributeError:
+        setattr(coordinator, "camera_entities", entities := {})
+
+    new_entities = []
+    for camera_id, camera in coordinator.api_object.iot_cameras.items():
+        if camera_id not in entities and (camera.snapshot_url or camera.stream_url):
+            entity = PikIntercomIotDiscreteCamera(
+                coordinator,
+                device=camera,
+            )
+            new_entities.append(entity)
+            entities[camera_id] = entity
+
+    if new_entities:
+        async_add_entities(new_entities)
+
+
+@callback
+def async_add_new_iot_intercoms(
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    try:
+        entities_intercoms = getattr(coordinator, "intercom_camera_entities")
+    except AttributeError:
+        setattr(coordinator, "intercom_camera_entities", entities_intercoms := {})
+
+    try:
+        entities_relays = getattr(coordinator, "relay_camera_entities")
+    except AttributeError:
+        setattr(coordinator, "relay_camera_entities", entities_relays := {})
+
+    new_entities = []
+    for intercom_id, intercom in coordinator.api_object.iot_intercoms.items():
+        if intercom_id not in entities_intercoms and intercom.has_camera:
+            entity = PikIntercomIotIntercomCamera(
+                coordinator,
+                device=intercom,
+            )
+
+            # Do not enable ca
+            setattr(
+                entity,
+                "_attr_entity_registry_enabled_default",
+                (intercom.has_camera and not any(relay.has_camera for relay in intercom.relays)),
+            )
+            new_entities.append(entity)
+            entities_intercoms[intercom_id] = entity
+
+    for relay_id, relay in coordinator.api_object.iot_relays.items():
+        if relay_id not in entities_relays and relay.has_camera:
+            entity = PikIntercomIotRelayCamera(
+                coordinator,
+                device=relay,
+            )
+            new_entities.append(entity)
+            entities_relays[relay_id] = entity
+
+    if new_entities:
+        async_add_entities(new_entities)
+
+
+@callback
+def async_add_new_property_intercoms(
+    coordinator: PikIntercomPropertyIntercomsUpdateCoordinator,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    try:
+        entities = getattr(coordinator, "camera_entities")
+    except AttributeError:
+        setattr(coordinator, "camera_entities", entities := {})
+
+    new_entities = []
+    for intercom_id, intercom in coordinator.api_object.devices.items():
+        if intercom_id not in entities and (intercom.snapshot_url or intercom.stream_url):
+            entity = PikIntercomPropertyDeviceCamera(
+                coordinator,
+                device=intercom,
+            )
+            new_entities.append(entity)
+            entities[intercom_id] = entity
+
+    if new_entities:
+        async_add_entities(new_entities)
+
 
 async def async_setup_entry(
-    hass: HomeAssistantType, config_entry, async_add_entities
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
 ) -> bool:
     """Add a Pik Intercom camera from a config entry."""
+    for coordinator in hass.data[DOMAIN][entry.entry_id]:
+        # Add update listeners to meter entity
+        if isinstance(coordinator, PikIntercomPropertyIntercomsUpdateCoordinator):
+            run_func = async_add_new_property_intercoms
+        elif isinstance(coordinator, PikIntercomIotIntercomsUpdateCoordinator):
+            run_func = async_add_new_iot_intercoms
+        elif isinstance(coordinator, PikIntercomIotCamerasUpdateCoordinator):
+            run_func = async_add_new_iot_cameras
+        else:
+            continue
 
-    config_entry_id = config_entry.entry_id
+        # Run first time
+        run_func(coordinator, async_add_entities)
 
-    _LOGGER.debug(f"[{config_entry_id}] Настройка платформы 'camera'")
-
-    api: PikIntercomAPI = hass.data[DOMAIN][config_entry_id]
-
-    new_entities: List[_BaseIntercomCamera] = [
-        PikIntercomPropertyDeviceCamera(hass, config_entry_id, intercom_device)
-        for intercom_device in api.devices.values()
-        if intercom_device.has_camera
-    ]
-
-    snapshot_urls = set()
-
-    for iot_relay in api.iot_relays.values():
-        photo_url, stream_url = iot_relay.photo_url, iot_relay.stream_url
-
-        if photo_url:
-            snapshot_urls.add(photo_url)
-
-        if photo_url or stream_url:
-            new_entities.append(
-                PikIntercomIotRelayCamera(hass, config_entry_id, iot_relay)
+        # Add listener for future updates
+        coordinator.async_add_listener(
+            partial(
+                run_func,
+                coordinator,
+                async_add_entities,
             )
-
-    for iot_intercom in api.iot_intercoms.values():
-        photo_url = iot_intercom.photo_url
-
-        if photo_url and photo_url not in snapshot_urls:
-            new_entities.append(
-                PikIntercomIotIntercomCamera(
-                    hass, config_entry_id, iot_intercom
-                )
-            )
-
-    async_add_entities(new_entities, True)
-
-    _LOGGER.debug(
-        f"[{config_entry_id}] Завершение инициализации платформы 'camera'"
-    )
+        )
 
     return True
 
 
-class _BaseIntercomCamera(BasePikIntercomEntity, Camera, ABC):
+_T = TypeVar("_T")
+_TT = TypeVar("_TT")
+
+
+class _BaseIntercomCamera(BasePikIntercomCoordinatorEntity[_T, _TT], Camera, ABC, Generic[_T, _TT]):
+    _attr_icon = "mdi:doorbell-video"
+    _attr_supported_features = CameraEntityFeature.STREAM
+    _attr_motion_detection_enabled = False
+
     def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
         Camera.__init__(self)
+        super().__init__(*args, **kwargs)
 
-        self.entity_id = (
-            f"camera.{self._internal_object_identifier.replace('__', '_')}"
-        )
-
-        self._entity_updater: Optional[Callable] = None
-        self._ffmpeg = self.hass.data[ffmpeg.DATA_FFMPEG]
+        # self._ffmpeg = self.hass.data[ffmpeg.DATA_FFMPEG]
         self._does_not_require_tcp_transport: Optional[bool] = None
 
-    @property
-    @abstractmethod
-    def _internal_object(
-        self,
-    ) -> Union[PikObjectWithVideo, PikObjectWithSnapshot]:
-        raise NotImplementedError
+    def _update_attr(self) -> None:
+        super()._update_attr()
 
-    @property
-    def icon(self) -> str:
-        return "mdi:doorbell-video"
+        device = self._internal_object
+        if not (extra_state_attributes := getattr(self, "_attr_extra_state_attributes", None)):
+            self._attr_extra_state_attributes = extra_state_attributes = {}
 
-    @property
-    def supported_features(self) -> int:
-        """Return supported features."""
-        return SUPPORT_STREAM
+        if isinstance(device, PikObjectWithVideo):
+            extra_state_attributes["stream_url"] = stream_source = device.stream_url
+            if (stream := self.stream) and stream_source != stream.source:
+                _LOGGER.debug(f"[{self}] Изменение URL потока: " f"{stream.source} ---> {stream_source}")
+                stream.update_source(stream_source)
 
-    @property
-    def motion_detection_enabled(self) -> bool:
-        """Camera Motion Detection Status."""
-        return False
+        if isinstance(device, PikObjectWithSnapshot):
+            extra_state_attributes["photo_url"] = device.snapshot_url
 
-    @property
-    def unique_id(self) -> str:
-        return f"intercom_camera__{self._internal_object_identifier}"
+        if hasattr(device, "is_face_detection"):
+            extra_state_attributes["face_detection"] = device.is_face_detection
 
     def turn_off(self) -> None:
         raise HomeAssistantError("Binary state not supported")
@@ -137,58 +220,39 @@ class _BaseIntercomCamera(BasePikIntercomEntity, Camera, ABC):
     def disable_motion_detection(self) -> None:
         raise HomeAssistantError("Motion detection not supported")
 
-    async def async_camera_image(
-        self, width: Optional[int] = None, height: Optional[int] = None
-    ) -> Optional[bytes]:
+    async def async_camera_image(self, width: Optional[int] = None, height: Optional[int] = None) -> Optional[bytes]:
         """Return a still image response from the camera."""
         internal_object = self._internal_object
         log_prefix = f"[{self.entity_id}] "
 
         # Attempt to retrieve snapshot image using photo URL
         if isinstance(internal_object, PikObjectWithSnapshot):
-            photo_url = internal_object.photo_url
-            if photo_url:
+            if photo_url := internal_object.snapshot_url:
                 try:
                     # Send the request to snap a picture and return raw JPEG data
-                    snapshot_image = await internal_object.async_get_snapshot()
+                    if snapshot_image := await internal_object.async_get_snapshot():
+                        return snapshot_image
                 except PikIntercomException as error:
-                    _LOGGER.error(
-                        log_prefix + f"Ошибка получения снимка: {error}"
-                    )
-                else:
-                    return snapshot_image
-            else:
-                _LOGGER.debug(log_prefix + f"Ссылка на изображение отсутствует")
+                    _LOGGER.error(log_prefix + f"Ошибка получения снимка: {error}")
 
         if isinstance(internal_object, PikObjectWithVideo):
             # Attempt to retrieve snapshot image using RTSP stream
-            stream_url = internal_object.stream_url
-            if stream_url:
-                snapshot_image = await ffmpeg.async_get_image(
+            if (stream_url := internal_object.stream_url) and (
+                snapshot_image := await ffmpeg.async_get_image(
                     self.hass,
                     stream_url,
                     extra_cmd="-prefix_rtsp_flags prefer_tcp",
                     width=width,
                     height=height,
                 )
-
-                if not snapshot_image:
-                    _LOGGER.warning(
-                        log_prefix + "Видеопоток не содержит изображение"
-                    )
-                    return None
-
+            ):
                 return snapshot_image
-            else:
-                _LOGGER.debug(log_prefix + f"Ссылка на видеопоток отсутствует")
 
         # Warn about missing sources
         _LOGGER.warning(log_prefix + "Отсутствует источник снимков")
         return None
 
-    def camera_image(
-        self, width: Optional[int] = None, height: Optional[int] = None
-    ) -> Optional[bytes]:
+    def camera_image(self, width: Optional[int] = None, height: Optional[int] = None) -> Optional[bytes]:
         return asyncio.run_coroutine_threadsafe(
             self.async_camera_image(width, height),
             self.hass.loop,
@@ -196,89 +260,38 @@ class _BaseIntercomCamera(BasePikIntercomEntity, Camera, ABC):
 
     async def stream_source(self) -> Optional[str]:
         """Return the RTSP stream source."""
-        internal_object = self._internal_object
-        if isinstance(internal_object, PikObjectWithVideo):
-            return internal_object.stream_url
-        return None
-
-    async def async_update(self) -> None:
-        await super().async_update()
-
-        stream = self.stream
-        if stream:
-            async with async_timeout.timeout(CAMERA_STREAM_SOURCE_TIMEOUT):
-                source = await self.stream_source()
-            if source != stream.source:
-                _LOGGER.debug(
-                    f"[{self}] Изменение URL потока: "
-                    f"{stream.source} ---> {source}"
-                )
-                stream.update_source(source)
-
-    @property
-    def extra_state_attributes(self) -> Dict[str, Any]:
-        internal_object = self._internal_object
-        state_attributes = {}
-
-        if isinstance(internal_object, PikObjectWithVideo):
-            state_attributes["stream_url"] = internal_object.stream_url
-
-        if isinstance(internal_object, PikObjectWithSnapshot):
-            state_attributes["photo_url"] = internal_object.photo_url
-
-        return state_attributes
+        if isinstance(self._internal_object, PikObjectWithVideo):
+            return self._internal_object.stream_url
 
 
-class PikIntercomPropertyDeviceCamera(
-    _BaseIntercomCamera, BasePikIntercomPropertyDeviceEntity
-):
-    """An implementation of a Pik Intercom IP intercom."""
+class PikIntercomPropertyDeviceCamera(_BaseIntercomCamera, BasePikIntercomPropertyDeviceEntity):
+    """Entity representation of a property device camera."""
 
-    @property
-    def _internal_object(
-        self,
-    ) -> Union[PikObjectWithVideo, PikObjectWithSnapshot]:
-        return self._intercom_device
+    UNIQUE_ID_FORMAT = BasePikIntercomPropertyDeviceEntity.UNIQUE_ID_FORMAT + "__camera"
 
-    @property
-    def extra_state_attributes(self) -> Mapping[str, Any]:
-        state_attributes = super().state_attributes
-
-        intercom_device = self._intercom_device
-        intercom_streams = intercom_device.video
-        state_attributes.update(
-            {
-                "all_stream_urls": [
-                    {"quality": key, "source": value}
-                    for key in (
-                        intercom_streams.keys() if intercom_streams else ()
-                    )
-                    for value in intercom_streams.getall(key)
-                ],
-                "face_detection": intercom_device.face_detection,
-            }
-        )
-
-        return state_attributes
+    def _update_attr(self) -> None:
+        super()._update_attr()
+        device = self._internal_object
+        if intercom_streams := device.video:
+            state_attributes = self._attr_extra_state_attributes
+            for key in intercom_streams:
+                for value in intercom_streams.getall(key):
+                    state_attributes[f"stream_url_{key}"] = value
 
 
-class PikIntercomIotIntercomCamera(
-    _BaseIntercomCamera,
-    BasePikIntercomIotIntercomEntity,
-):
-    @property
-    def _internal_object(
-        self,
-    ) -> Union[PikObjectWithVideo, PikObjectWithSnapshot]:
-        return self._iot_intercom
+class PikIntercomIotDiscreteCamera(BasePikIntercomIotCameraEntity, _BaseIntercomCamera):
+    """Entity representation of a singleton camera."""
+
+    UNIQUE_ID_FORMAT = "iot_camera__{}__camera"
 
 
-class PikIntercomIotRelayCamera(
-    BasePikIntercomIotRelayEntity,
-    _BaseIntercomCamera,
-):
-    @property
-    def _internal_object(
-        self,
-    ) -> Union[PikObjectWithVideo, PikObjectWithSnapshot]:
-        return self._iot_relay
+class PikIntercomIotIntercomCamera(BasePikIntercomIotIntercomEntity, _BaseIntercomCamera):
+    """Entity representation of an IoT intercom camera."""
+
+    UNIQUE_ID_FORMAT = "iot_intercom__{}__camera"
+
+
+class PikIntercomIotRelayCamera(BasePikIntercomIotRelayEntity, _BaseIntercomCamera):
+    """Entity representation of an IoT relay camera."""
+
+    UNIQUE_ID_FORMAT = "iot_relay__{}__camera"
