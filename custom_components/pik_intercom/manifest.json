@@ -6,7 +6,7 @@
   "dependencies": [
     "ffmpeg"
   ],
-  "version": "1.1.2",
+  "version": "2023.6.0",
   "codeowners": [
     "@alryaz"
   ],
