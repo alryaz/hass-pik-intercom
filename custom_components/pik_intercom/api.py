@@ -11,6 +11,10 @@ __all__ = (
     "PikIotIntercom",
     "PikObjectWithVideo",
     "PikObjectWithSnapshot",
+    "PikObjectWithSIP",
+    "PikObjectWithUnlocker",
+    "PikCustomerDevice",
+    "PikActiveCallSession",
     "VIDEO_QUALITY_TYPES",
     "DEFAULT_CLIENT_VERSION",
     "DEFAULT_CLIENT_APP",
@@ -45,6 +49,7 @@ from multidict import CIMultiDict, CIMultiDictProxy, MultiDict
 
 _LOGGER = logging.getLogger(__name__)
 
+DEFAULT_DEVICE_MODEL: Final = "Python API"
 DEFAULT_USER_AGENT: Final = "okhttp/4.9.0"
 DEFAULT_CLIENT_APP: Final = "alfred"
 DEFAULT_CLIENT_VERSION: Final = "2023.5.1"
@@ -70,6 +75,8 @@ class PikIntercomAPI:
         password: str,
         session: aiohttp.ClientSession,
         device_id: Optional[str] = None,
+        *,
+        device_model: str = DEFAULT_DEVICE_MODEL,
         user_agent: str = DEFAULT_USER_AGENT,
         client_app: str = DEFAULT_CLIENT_APP,
         client_version: str = DEFAULT_CLIENT_VERSION,
@@ -86,6 +93,7 @@ class PikIntercomAPI:
                 k=16,
             )
         )
+        self.device_model = device_model
         self.user_agent = user_agent
         self.client_app = client_app
         self.client_version = client_version
@@ -98,6 +106,7 @@ class PikIntercomAPI:
         self._account: Optional[PikAccount] = None
         self._properties: Dict[int, PikProperty] = {}
         self._devices: Dict[int, PikPropertyDevice] = {}
+        self._customer_devices: Dict[int, PikCustomerDevice] = {}
 
         # Placeholders for IoT requests
         self._iot_intercoms: Dict[int, PikIotIntercom] = {}
@@ -107,6 +116,11 @@ class PikIntercomAPI:
         self._call_sessions: Dict[int, PikCallSession] = {}
 
         # @TODO: add other properties
+
+    def get_sip_password(self, ex_user: str) -> Optional[str]:
+        for device in self._customer_devices.values():
+            if device.ex_user == ex_user and (password := device.password):
+                return password
 
     @property
     def username(self) -> str:
@@ -119,6 +133,12 @@ class PikIntercomAPI:
     @property
     def is_authenticated(self) -> bool:
         return self._authorization is not None
+
+    @property
+    def customer_device(self) -> Optional["PikCustomerDevice"]:
+        for device in self._customer_devices.values():
+            if device.uid == self.device_id:
+                return device
 
     @property
     def properties(self) -> Mapping[int, "PikProperty"]:
@@ -199,7 +219,7 @@ class PikIntercomAPI:
                 headers=headers,
                 **kwargs,
             ) as request:
-                if request.status != 200:
+                if request.status not in (200, 201):
                     _LOGGER.error(
                         log_prefix + f"Could not perform {title}, "
                         f"status {request.status}, body: {await request.text()}"
@@ -315,7 +335,89 @@ class PikIntercomAPI:
         account.last_name = account_data.get("last_name")
         account.middle_name = account_data.get("middle_name")
 
+        for device_data in resp_data.get("customer_devices") or ():
+            self._deserialize_customer_device(device_data)
+
         _LOGGER.debug(f"[{request_counter}] Authentication successful")
+
+    def _deserialize_customer_device(self, data: Mapping[str, Any]) -> Optional["PikCustomerDevice"]:
+        try:
+            customer_device_id = int(data["id"])
+            customer_device_account_id = int(data["account_id"])
+        except (TypeError, ValueError, LookupError):
+            return None
+
+        try:
+            customer_device = self._customer_devices[customer_device_id]
+        except KeyError:
+            self._customer_devices[customer_device_id] = customer_device = PikCustomerDevice(
+                api=self,
+                id=customer_device_id,
+                uid=data["uid"],
+                account_id=customer_device_account_id,
+            )
+
+        customer_device.apartment_id = data.get("apartment_id") or None
+        customer_device.model = data.get("model") or None
+        customer_device.kind = data.get("kind") or None
+        customer_device.firmware_version = data.get("firmware_version") or None
+        customer_device.mac_address = data.get("mac_address") or None
+        customer_device.os = data.get("os") or None
+        customer_device.deleted_at = data.get("deleted_at") or None
+
+        if sip_account_data := data.get("sip_account") or None:
+            customer_device.ex_user = sip_account_data.get("ex_user") or None
+            customer_device.proxy = sip_account_data.get("proxy") or None
+            customer_device.realm = sip_account_data.get("realm") or None
+            customer_device.ex_enable = bool(sip_account_data.get("ex_enable"))
+            customer_device.alias = sip_account_data.get("alias") or None
+            customer_device.remote_request_status = sip_account_data.get("remote_request_status") or None
+            customer_device.password = sip_account_data.get("password") or None
+
+        return customer_device
+
+    async def async_update_customer_device(self) -> Any:
+        if not (device_id := self.device_id):
+            raise PikIntercomException("device ID not set")
+        try:
+            resp_data, headers, request_counter = await self._async_get(
+                "/api/customers/devices/lookup",
+                title="customer device lookup",
+                authenticated=True,
+                params={"customer_device[uid]": device_id},
+            )
+        except PikIntercomException:
+            resp_data, headers, request_counter = await self._async_post(
+                "/api/customers/devices",
+                title="customer device initialization",
+                authenticated=True,
+                params={
+                    "customer_device[model]": self.device_model,
+                    "customer_device[kind]": "mobile",
+                    "customer_device[uid]": device_id,
+                    "customer_device[os]": self.client_os.lower(),
+                    "customer_device[push_version]": "2.0.0",
+                },
+            )
+
+        if self._deserialize_customer_device(resp_data) is None:
+            raise PikIntercomException(f"could not create customer device for id {self.device_id}")
+
+    async def async_set_customer_device_push_token(self, push_token: str) -> None:
+        customer_device_id = None
+        for device_id, device in self._customer_devices.items():
+            if device.uid == self.device_id:
+                customer_device_id = device_id
+                break
+        if customer_device_id is None:
+            raise PikIntercomException("device by id not found")
+        await self._async_req(
+            aiohttp.hdrs.METH_PATCH,
+            f"/api/customers/devices/{customer_device_id}",
+            title="customer device push token update",
+            authenticated=True,
+            params={"customer_device[push_token]": push_token},
+        )
 
     async def async_update_properties(self):
         resp_data, headers, request_counter = await self._async_get(
@@ -665,6 +767,50 @@ class PikIntercomAPI:
 
         _LOGGER.debug(f"[{request_counter}] Intercom unlocking successful (assumed)")
 
+    async def async_get_current_call_session(self) -> Optional["PikActiveCallSession"]:
+        resp_data, headers, request_counter = await self._async_get(
+            "/api/alfred/v1/personal/call_sessions/current",
+            title="current call session",
+            base_url=self.BASE_IOT_URL,
+            authenticated=True,
+        )
+
+        notified_at = datetime.fromisoformat(resp_data["notified_at"]) if resp_data.get("notified_at") else None
+        pickedup_at = datetime.fromisoformat(resp_data["pickedup_at"]) if resp_data.get("pickedup_at") else None
+        finished_at = datetime.fromisoformat(resp_data["finished_at"]) if resp_data.get("finished_at") else None
+        deleted_at = datetime.fromisoformat(resp_data["deleted_at"]) if resp_data.get("deleted_at") else None
+        created_at = datetime.fromisoformat(resp_data["created_at"]) if resp_data.get("created_at") else None
+
+        target_relays = []
+        for relay_data in resp_data.get("target_relays") or ():
+            try:
+                relay = self._iot_relays[int(relay_data["id"])]
+            except (TypeError, ValueError, LookupError):
+                continue
+            else:
+                target_relays.append(relay)
+
+        return PikActiveCallSession(
+            api=self,
+            id=int(resp_data["id"]),
+            intercom_id=int(resp_data["intercom_id"]),
+            intercom_name=resp_data.get("intercom_name") or None,
+            property_id=int(resp_data["property_id"]) if resp_data.get("property_id") else None,
+            property_name=resp_data.get("property_name") or None,
+            notified_at=notified_at,
+            pickedup_at=pickedup_at,
+            finished_at=finished_at,
+            deleted_at=deleted_at,
+            created_at=created_at,
+            geo_unit_id=int(resp_data["geo_unit_id"]) if resp_data.get("geo_unit_id") else None,
+            geo_unit_short_name=resp_data.get("geo_unit_name") or None,
+            identifier=resp_data.get("identifier") or None,
+            provider=resp_data.get("provider") or None,
+            proxy=resp_data.get("proxy") or None,
+            snapshot_url=resp_data.get("snapshot_url"),
+            target_relays=target_relays,
+        )
+
     @property
     def last_call_session(self) -> Optional["PikCallSession"]:
         try:
@@ -810,6 +956,18 @@ class PikObjectWithUnlocker(_BaseObject, ABC):
         raise NotImplementedError
 
 
+class PikObjectWithSIP(_BaseObject, ABC):
+    @property
+    @abstractmethod
+    def sip_user(self) -> Optional[str]:
+        raise NotImplementedError
+
+    @property
+    def sip_password(self) -> Optional[str]:
+        if user := self.sip_user:
+            return self.api.get_sip_password(user)
+
+
 @dataclass(slots=True)
 class PikAccount(_BaseObject):
     phone: str
@@ -844,23 +1002,58 @@ class PikProperty(_BaseObject):
 
 
 @dataclass(slots=True)
-class PikCallSession(_BaseObject):
-    property_id: int
-    property_name: str
+class _BasePikCallSession(PikObjectWithSnapshot, ABC):
     intercom_id: int
-    intercom_name: str
-    photo_url: Optional[str]
+    intercom_name: Optional[str] = None
+    property_id: Optional[int] = None
+    property_name: Optional[str] = None
     notified_at: Optional[datetime] = None
     pickedup_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    deleted_at: Optional[datetime] = None
+
+
+@dataclass(slots=True)
+class PikCallSession(_BasePikCallSession):
+    photo_url: Optional[str] = None
 
     @property
-    def full_photo_url(self) -> Optional[str]:
+    def snapshot_url(self) -> Optional[str]:
         return self.photo_url
 
 
 @dataclass(slots=True)
-class PikPropertyDevice(PikObjectWithSnapshot, PikObjectWithVideo, PikObjectWithUnlocker):
+class PikActiveCallSession(_BasePikCallSession, PikObjectWithUnlocker):
+    geo_unit_id: Optional[int] = None
+    geo_unit_short_name: Optional[str] = None
+    identifier: Optional[str] = None
+    provider: Optional[str] = None
+    proxy: Optional[str] = None
+    snapshot_url: Optional[str] = None
+    target_relays: List["PikIotRelay"] = field(default_factory=list)
+
+    async def async_unlock(self) -> None:
+        if not self.target_relays:
+            raise PikIntercomException("no target relays provided")
+
+        errors = []
+        for task in (
+            await asyncio.wait(
+                [asyncio.create_task(relay.async_unlock()) for relay in self.target_relays],
+                return_when=asyncio.ALL_COMPLETED,
+            )
+        )[0]:
+            if (exc := task.exception()) and not isinstance(exc, asyncio.CancelledError):
+                _LOGGER.error(f"Error occurred on unlocking: {exc}", exc_info=exc)
+                errors.append(exc)
+
+        if errors:
+            raise PikIntercomException(f"Error(s) occurred while unlocking: {', '.join(map(str, errors))}")
+
+
+@dataclass(slots=True)
+class PikPropertyDevice(PikObjectWithSnapshot, PikObjectWithVideo, PikObjectWithUnlocker, PikObjectWithSIP):
     scheme_id: Optional[int] = None
     building_id: Optional[int] = None
     kind: Optional[str] = None
@@ -881,6 +1074,10 @@ class PikPropertyDevice(PikObjectWithSnapshot, PikObjectWithVideo, PikObjectWith
     # From sip_account parameter
     proxy: Optional[str] = None
     ex_user: Optional[str] = None
+
+    @property
+    def sip_user(self) -> Optional[str]:
+        return self.ex_user
 
     @property
     def stream_url(self) -> Optional[str]:
@@ -977,7 +1174,7 @@ class PikIotCamera(_PikIotCameraWithRTSP):
 
 
 @dataclass(slots=True)
-class PikIotIntercom(_PikIotBaseCamera):
+class PikIotIntercom(_PikIotBaseCamera, PikObjectWithSIP):
     client_id: Optional[int] = None
     is_face_detection: bool = False
     relays: List[PikIotRelay] = field(default_factory=list)
@@ -996,6 +1193,10 @@ class PikIotIntercom(_PikIotBaseCamera):
     webrtc_supported: Optional[bool] = None
 
     @property
+    def sip_user(self) -> Optional[str]:
+        return self.ex_user
+
+    @property
     def stream_url(self) -> Optional[str]:
         # Return relay matching snapshot url
         if snapshot_url := self.snapshot_url:
@@ -1007,3 +1208,33 @@ class PikIotIntercom(_PikIotBaseCamera):
         for relay in self.relays:
             if relay.stream_url:
                 return relay.stream_url
+
+
+@dataclass(slots=True)
+class PikCustomerDevice(PikObjectWithSIP):
+    account_id: int
+    uid: str
+    apartment_id: Optional[int] = None
+    model: Optional[str] = None
+    kind: Optional[str] = None
+    firmware_version: Optional[str] = None
+    mac_address: Optional[str] = None
+    os: Optional[str] = None
+    deleted_at: Any = None
+
+    # From sip_account parameter
+    ex_user: Optional[str] = None
+    proxy: Optional[str] = None
+    realm: Optional[str] = None
+    ex_enable: bool = False
+    alias: Optional[str] = None
+    remote_request_status: Optional[str] = None
+    password: Optional[str] = None
+
+    @property
+    def sip_user(self) -> Optional[str]:
+        return self.ex_user
+
+    @property
+    def sip_password(self) -> Optional[str]:
+        return self.password

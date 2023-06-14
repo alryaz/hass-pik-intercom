@@ -8,7 +8,7 @@ __all__ = (
 
 import asyncio
 import logging
-from abc import abstractmethod, ABC
+from abc import ABC
 from functools import partial
 from typing import Dict, Type, Mapping
 
@@ -20,11 +20,13 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from custom_components.pik_intercom.api import PikObjectWithUnlocker
 from custom_components.pik_intercom.const import DOMAIN
 from custom_components.pik_intercom.entity import (
-    BasePikIntercomCoordinatorEntity,
     BasePikIntercomPropertyDeviceEntity,
     BasePikIntercomIotRelayEntity,
     PikIntercomIotIntercomsUpdateCoordinator,
     PikIntercomPropertyIntercomsUpdateCoordinator,
+    BasePikIntercomEntity,
+    BasePikIntercomLastCallSessionEntity,
+    PikIntercomLastCallSessionUpdateCoordinator,
 )
 
 _LOGGER: logging.Logger = logging.getLogger(__name__)
@@ -72,6 +74,8 @@ async def async_setup_entry(
             entity_cls = PikIntercomPropertyPropertyDeviceUnlockerButton
             objects_dict = coordinator.api_object.devices
         else:
+            if isinstance(coordinator, PikIntercomLastCallSessionUpdateCoordinator):
+                async_add_entities([PikIntercomCallSessionUnlockerButton(coordinator, device=coordinator.data)])
             continue
 
         # Run first time
@@ -91,7 +95,7 @@ async def async_setup_entry(
     return True
 
 
-class _BaseUnlockerButton(BasePikIntercomCoordinatorEntity, ButtonEntity, ABC):
+class _BaseUnlockerButton(BasePikIntercomEntity, ButtonEntity, ABC):
     """Base class for unlocking Intercom relays"""
 
     _attr_icon = "mdi:door-closed-lock"
@@ -118,10 +122,19 @@ class _BaseUnlockerButton(BasePikIntercomCoordinatorEntity, ButtonEntity, ABC):
 class PikIntercomPropertyPropertyDeviceUnlockerButton(BasePikIntercomPropertyDeviceEntity, _BaseUnlockerButton):
     """Property Intercom Unlocker Adapter"""
 
-    UNIQUE_ID_FORMAT = BasePikIntercomPropertyDeviceEntity.UNIQUE_ID_FORMAT + "__unlocker"
+    UNIQUE_ID_FORMAT = f"{BasePikIntercomPropertyDeviceEntity.UNIQUE_ID_FORMAT}__unlocker"
 
 
 class PikIntercomIotRelayUnlockerButton(BasePikIntercomIotRelayEntity, _BaseUnlockerButton):
     """IoT Relay Unlocker Adapter"""
 
-    UNIQUE_ID_FORMAT = BasePikIntercomIotRelayEntity.UNIQUE_ID_FORMAT + "__unlocker"
+    UNIQUE_ID_FORMAT = f"{BasePikIntercomIotRelayEntity.UNIQUE_ID_FORMAT}__unlocker"
+
+
+class PikIntercomCallSessionUnlockerButton(BasePikIntercomLastCallSessionEntity, _BaseUnlockerButton):
+    """Last call session unlock delegator."""
+
+    UNIQUE_ID_FORMAT = f"{BasePikIntercomLastCallSessionEntity.UNIQUE_ID_FORMAT}__unlocker"
+
+    def _update_attr(self) -> None:
+        super()._update_attr()

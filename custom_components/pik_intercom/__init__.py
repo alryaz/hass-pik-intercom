@@ -50,8 +50,6 @@ from custom_components.pik_intercom.const import (
     MIN_AUTH_UPDATE_INTERVAL,
     MIN_CALL_SESSIONS_UPDATE_INTERVAL,
     MIN_DEVICE_ID_LENGTH,
-    UPDATE_CONFIG_KEY_CALL_SESSIONS,
-    UPDATE_CONFIG_KEY_INTERCOMS,
     MIN_INTERCOMS_UPDATE_INTERVAL,
 )
 from .helpers import (
@@ -65,6 +63,7 @@ from .entity import (
     PikIntercomIotIntercomsUpdateCoordinator,
     PikIntercomIotCamerasUpdateCoordinator,
     PikIntercomIotMetersUpdateCoordinator,
+    PikIntercomLastCallSessionUpdateCoordinator,
 )
 
 _LOGGER: Final = logging.getLogger(__name__)
@@ -73,6 +72,7 @@ PLATFORMS = (
     Platform.BUTTON,
     Platform.CAMERA,
     Platform.SENSOR,
+    Platform.BINARY_SENSOR,
 )
 
 _BASE_CONFIG_ENTRY_SCHEMA: Final = vol.Schema(
@@ -178,6 +178,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     try:
         await api_object.async_authenticate()
+        await api_object.async_update_customer_device()
     except PikIntercomException as exc:
         msg = f"Невозможно выполнить авторизацию: {exc}"
         _LOGGER.error(log_prefix + msg, exc_info=exc)
@@ -222,6 +223,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
         )
 
+    entry_update_coordinators.append(
+        PikIntercomLastCallSessionUpdateCoordinator(
+            hass,
+            api_object=api_object,
+            update_interval=timedelta(milliseconds=2500),
+        )
+    )
+
     # Perform initial update tasks
     done, pending = await asyncio.wait(
         [
@@ -253,6 +262,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         async_reauthenticate,
         timedelta(seconds=entry.options[CONF_AUTH_UPDATE_INTERVAL]),
     )
+
+    # # @TODO: code above must be uncommented to work
+    # if push_credentials:
+    #     def async_handle_notification(obj, notification, data_message):
+    #         _LOGGER.info(f"Received notification object: {obj}")
+    #         _LOGGER.info(f"Received notification type: {notification}")
+    #         _LOGGER.info(f"Received notification data_message: {data_message}")
+    #
+    #     async def async_listen_notifications(*_):
+    #         from push_receiver.push_receiver import PushReceiver
+    #
+    #         await hass.async_add_executor_job(PushReceiver(push_credentials).listen, async_handle_notification)
+    #
+    #     hass.data.setdefault(DATA_PUSH_RECEIVERS, {})[config_entry_id] = hass.async_create_background_task(
+    #         async_listen_notifications(), name="notification listener"
+    #     )
 
     # Forward entry setup to sensor platform
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -305,6 +330,9 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             True,
         )
 
+    if entry.version < 4:
+        options[CONF_PUSH_CREDENTIALS] = None
+
     entry.version = PikIntercomConfigFlow.VERSION
     hass.config_entries.async_update_entry(entry, data=data, options=options)
 
@@ -316,5 +344,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
         # Clear authentication updater
         if auth_updater := hass.data.get(DATA_REAUTHENTICATORS, {}).pop(entry.entry_id, None):
             auth_updater()
+
+        # Cancel push receiver
+        if push_receiver := hass.data.get(DATA_PUSH_RECEIVERS, {}).pop(entry.entry_id, None):
+            push_receiver.cancel()
 
     return unload_ok

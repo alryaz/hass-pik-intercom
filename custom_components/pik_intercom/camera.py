@@ -18,10 +18,7 @@ from typing import (
 )
 
 from homeassistant.components import ffmpeg
-from homeassistant.components.camera import (
-    Camera,
-    CameraEntityFeature,
-)
+from homeassistant.components.camera import Camera, CameraEntityFeature
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
@@ -31,10 +28,10 @@ from custom_components.pik_intercom.api import (
     PikIntercomException,
     PikObjectWithVideo,
     PikObjectWithSnapshot,
+    PikObjectWithSIP,
 )
 from custom_components.pik_intercom.const import DOMAIN
 from custom_components.pik_intercom.entity import (
-    BasePikIntercomCoordinatorEntity,
     BasePikIntercomPropertyDeviceEntity,
     BasePikIntercomIotIntercomEntity,
     BasePikIntercomIotRelayEntity,
@@ -42,6 +39,7 @@ from custom_components.pik_intercom.entity import (
     PikIntercomIotCamerasUpdateCoordinator,
     PikIntercomPropertyIntercomsUpdateCoordinator,
     BasePikIntercomIotCameraEntity,
+    BasePikIntercomEntity,
 )
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
@@ -50,7 +48,7 @@ AnyCameraType = Union[PikObjectWithVideo, PikObjectWithSnapshot]
 
 
 @callback
-def async_add_new_iot_cameras(
+def _async_add_new_iot_cameras(
     coordinator: PikIntercomIotCamerasUpdateCoordinator,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
@@ -74,7 +72,7 @@ def async_add_new_iot_cameras(
 
 
 @callback
-def async_add_new_iot_intercoms(
+def _async_add_new_iot_intercoms(
     coordinator: PikIntercomIotIntercomsUpdateCoordinator,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
@@ -112,7 +110,7 @@ def async_add_new_iot_intercoms(
 
 
 @callback
-def async_add_new_property_intercoms(
+def _async_add_new_property_intercoms(
     coordinator: PikIntercomPropertyIntercomsUpdateCoordinator,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
@@ -140,15 +138,15 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> bool:
-    """Add a Pik Intercom camera from a config entry."""
+    """Add a Pik Intercom cameras for a config entry."""
     for coordinator in hass.data[DOMAIN][entry.entry_id]:
         # Add update listeners to meter entity
         if isinstance(coordinator, PikIntercomPropertyIntercomsUpdateCoordinator):
-            run_func = async_add_new_property_intercoms
+            run_func = _async_add_new_property_intercoms
         elif isinstance(coordinator, PikIntercomIotIntercomsUpdateCoordinator):
-            run_func = async_add_new_iot_intercoms
+            run_func = _async_add_new_iot_intercoms
         elif isinstance(coordinator, PikIntercomIotCamerasUpdateCoordinator):
-            run_func = async_add_new_iot_cameras
+            run_func = _async_add_new_iot_cameras
         else:
             continue
 
@@ -171,7 +169,9 @@ _T = TypeVar("_T")
 _TT = TypeVar("_TT")
 
 
-class _BaseIntercomCamera(BasePikIntercomCoordinatorEntity[_T, _TT], Camera, ABC, Generic[_T, _TT]):
+class _BaseIntercomCamera(BasePikIntercomEntity[_T, _TT], Camera, ABC, Generic[_T, _TT]):
+    """Base class for Pik Intercom cameras."""
+
     _attr_icon = "mdi:doorbell-video"
     _attr_supported_features = CameraEntityFeature.STREAM
     _attr_motion_detection_enabled = False
@@ -184,6 +184,7 @@ class _BaseIntercomCamera(BasePikIntercomCoordinatorEntity[_T, _TT], Camera, ABC
         self._does_not_require_tcp_transport: Optional[bool] = None
 
     def _update_attr(self) -> None:
+        """Update attributes for Pik Intercom camera entity."""
         super()._update_attr()
 
         device = self._internal_object
@@ -201,7 +202,11 @@ class _BaseIntercomCamera(BasePikIntercomCoordinatorEntity[_T, _TT], Camera, ABC
                     setattr(stream, "_fast_restart_once", True)
 
         if isinstance(device, PikObjectWithSnapshot):
-            extra_state_attributes["photo_url"] = device.snapshot_url
+            extra_state_attributes["snapshot_url"] = device.snapshot_url
+
+        if isinstance(device, PikObjectWithSIP):
+            extra_state_attributes["sip_user"] = device.sip_user
+            extra_state_attributes["sip_password"] = device.sip_password
 
         if hasattr(device, "is_face_detection"):
             extra_state_attributes["face_detection"] = device.is_face_detection

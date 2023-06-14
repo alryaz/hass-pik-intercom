@@ -1,21 +1,15 @@
 """Pik Intercom sensors."""
 
-__all__ = ("async_setup_entry", "PikIntercomLastCallSessionSensor")
+__all__ = ("async_setup_entry", "PikIntercomMeterTotalSensor", "PikIntercomMeterMonthSensor")
 
 import logging
+from abc import ABC, abstractmethod
+from datetime import datetime
 from functools import partial
-from typing import (
-    Callable,
-    Optional,
-    Dict,
-    TYPE_CHECKING,
-)
+from typing import Dict, Optional
 
 from homeassistant.components.sensor import SensorEntity
-from homeassistant.components.sensor.const import (
-    SensorDeviceClass,
-    SensorStateClass,
-)
+from homeassistant.components.sensor.const import SensorDeviceClass, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfVolume
 from homeassistant.core import HomeAssistant, callback
@@ -23,19 +17,17 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from custom_components.pik_intercom.const import DOMAIN
 from custom_components.pik_intercom.entity import (
-    BasePikIntercomDeviceEntity,
     BasePikIntercomIotMeterEntity,
     PikIntercomIotMetersUpdateCoordinator,
+    BasePikIntercomLastCallSessionEntity,
+    PikIntercomLastCallSessionUpdateCoordinator,
 )
-
-if TYPE_CHECKING:
-    from custom_components.pik_intercom.api import PikIntercomAPI
 
 _LOGGER = logging.getLogger(__name__)
 
 
 @callback
-def async_add_new_meter_entities(
+def _async_add_new_meter_entities(
     coordinator: PikIntercomIotMetersUpdateCoordinator,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
@@ -75,75 +67,31 @@ async def async_setup_entry(
 ) -> bool:
     """Add a Pik Intercom sensors based on a config entry."""
 
-    # # Add single Pik Intercom
-    # async_add_entities(
-    #     [
-    #         PikIntercomLastCallSessionSensor(hass, entry.entry_id),
-    #     ],
-    #     True,
-    # )
-
     for coordinator in hass.data[DOMAIN][entry.entry_id]:
         # Add update listeners to meter entity
         if isinstance(coordinator, PikIntercomIotMetersUpdateCoordinator):
             # Run first time
-            async_add_new_meter_entities(coordinator, async_add_entities)
+            _async_add_new_meter_entities(coordinator, async_add_entities)
 
             # Add listener for future updates
             coordinator.async_add_listener(
                 partial(
-                    async_add_new_meter_entities,
+                    _async_add_new_meter_entities,
                     coordinator,
                     async_add_entities,
                 )
             )
+        elif isinstance(coordinator, PikIntercomLastCallSessionUpdateCoordinator):
+            async_add_entities(
+                entity_cls(coordinator, device=coordinator.data)
+                for entity_cls in (
+                    PikIntercomLastCallSessionCreatedAtSensor,
+                    PikIntercomLastCallSessionFinishedAtSensor,
+                    PikIntercomLastCallSessionPickedUpAtSensor,
+                )
+            )
 
     return True
-
-
-class PikIntercomLastCallSessionSensor(BasePikIntercomDeviceEntity, SensorEntity):
-    _attr_name = "Last Call Session"
-    _attr_icon = "mdi:phone"
-    _attr_device_class = SensorDeviceClass.TIMESTAMP
-    _attr_should_poll = True
-
-    def __init__(self, *args, api_object: "PikIntercomAPI", **kwargs) -> None:
-        """Initialize the Pik Intercom intercom video stream."""
-        super().__init__(*args, **kwargs)
-
-        self._api_object = api_object
-        self.entity_id = "sensor.last_call_session"
-        self._entity_updater: Optional[Callable] = None
-
-    @property
-    def api_object(self) -> "PikIntercomAPI":
-        return self._api_object
-
-    @property
-    def _common_device_identifier(self) -> str:
-        return f"last_call_session__{self.api_object.username}"
-
-    async def async_update(self) -> None:
-        await self.api_object.async_update_call_sessions(1)
-
-        new_value = None
-        if last_call_session := self.api_object.last_call_session:
-            self._attr_extra_state_attributes = {
-                "id": last_call_session.id,
-                "property_id": last_call_session.property_id,
-                "property_name": last_call_session.property_name,
-                "intercom_id": last_call_session.intercom_id,
-                "intercom_name": last_call_session.intercom_name,
-                "photo_url": last_call_session.full_photo_url,
-                "finished_at": (last_call_session.finished_at.isoformat() if last_call_session.finished_at else None),
-                "pickedup_at": (last_call_session.pickedup_at.isoformat() if last_call_session.pickedup_at else None),
-            }
-
-            if last_call_session.notified_at:
-                new_value = last_call_session.notified_at.isoformat()
-
-        self._attr_available = new_value is not None
-        self._attr_native_value = new_value
 
 
 class _BasePikIntercomMeterSensor(BasePikIntercomIotMeterEntity, SensorEntity):
@@ -154,20 +102,74 @@ class _BasePikIntercomMeterSensor(BasePikIntercomIotMeterEntity, SensorEntity):
 
 
 class PikIntercomMeterTotalSensor(_BasePikIntercomMeterSensor):
+    UNIQUE_ID_FORMAT = "iot_meter__{}__total"
+
     _attr_icon = "mdi:counter"
 
     def _update_attr(self) -> None:
         super()._update_attr()
-        self._attr_unique_id = f"iot_meter__{self._internal_object.id}__total"
-        self._attr_name = f"{self._common_device_name} Current"
+        self._attr_name = f"{self._common_device_name} Current Indication"
         self._attr_native_value = self._internal_object.current_value_numeric
 
 
 class PikIntercomMeterMonthSensor(_BasePikIntercomMeterSensor):
+    UNIQUE_ID_FORMAT = "iot_meter__{}__month"
+
     _attr_icon = "mdi:water-plus"
 
     def _update_attr(self) -> None:
         super()._update_attr()
-        self._attr_unique_id = f"iot_meter__{self._internal_object.id}__month"
-        self._attr_name = f"{self._common_device_name} Month"
+        self._attr_name = f"{self._common_device_name} Month Indication"
         self._attr_native_value = self._internal_object.month_value_numeric
+
+
+class _BasePikIntercomLastCallSessionTimestampSensor(BasePikIntercomLastCallSessionEntity, SensorEntity, ABC):
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _timestamp_name_suffix: str = None
+
+    def _update_attr(self) -> None:
+        super()._update_attr()
+        self._attr_name = f"{self._common_device_name} {self._timestamp_name_suffix}"
+        if self.coordinator.data and (timestamp := self.timestamp):
+            self._attr_available = True
+            self._attr_native_value = timestamp
+        elif getattr(self, "_attr_native_value", None) is None:
+            self._attr_available = False
+
+    @property
+    @abstractmethod
+    def timestamp(self) -> Optional[datetime]:
+        raise NotImplementedError
+
+
+class PikIntercomLastCallSessionCreatedAtSensor(_BasePikIntercomLastCallSessionTimestampSensor):
+    UNIQUE_ID_FORMAT = f"{_BasePikIntercomLastCallSessionTimestampSensor.UNIQUE_ID_FORMAT}__created_at"
+
+    _timestamp_name_suffix = "Created At"
+
+    @property
+    def timestamp(self) -> Optional[datetime]:
+        if device := self.coordinator.data:
+            return device.created_at
+
+
+class PikIntercomLastCallSessionPickedUpAtSensor(_BasePikIntercomLastCallSessionTimestampSensor):
+    UNIQUE_ID_FORMAT = f"{_BasePikIntercomLastCallSessionTimestampSensor.UNIQUE_ID_FORMAT}__picked_up_at"
+
+    _timestamp_name_suffix = "Picked Up at"
+
+    @property
+    def timestamp(self) -> Optional[datetime]:
+        if device := self.coordinator.data:
+            return device.pickedup_at
+
+
+class PikIntercomLastCallSessionFinishedAtSensor(_BasePikIntercomLastCallSessionTimestampSensor):
+    UNIQUE_ID_FORMAT = f"{_BasePikIntercomLastCallSessionTimestampSensor.UNIQUE_ID_FORMAT}__finished_at"
+
+    _timestamp_name_suffix = "Finished At"
+
+    @property
+    def timestamp(self) -> Optional[datetime]:
+        if device := self.coordinator.data:
+            return device.finished_at

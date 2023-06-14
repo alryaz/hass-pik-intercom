@@ -2,7 +2,6 @@
 __all__ = (
     "PikIntercomConfigFlow",
     "PikIntercomOptionsFlow",
-    "DEFAULT_OPTIONS",
 )
 
 import logging
@@ -17,7 +16,6 @@ from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
     OptionsFlow,
-    SOURCE_IMPORT,
     CONN_CLASS_CLOUD_POLL,
 )
 from homeassistant.const import (
@@ -31,21 +29,23 @@ from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
+from .helpers import phone_validator
 from .api import PikIntercomAPI, PikIntercomException
 from .const import (
     CONF_CALL_SESSIONS_UPDATE_INTERVAL,
     CONF_INTERCOMS_UPDATE_INTERVAL,
     DOMAIN,
     MIN_AUTH_UPDATE_INTERVAL,
-    MIN_CALL_SESSIONS_UPDATE_INTERVAL,
     MIN_DEVICE_ID_LENGTH,
     MIN_INTERCOMS_UPDATE_INTERVAL,
     DEFAULT_INTERCOMS_UPDATE_INTERVAL,
     DEFAULT_CALL_SESSIONS_UPDATE_INTERVAL,
     DEFAULT_AUTH_UPDATE_INTERVAL,
     CONF_AUTH_UPDATE_INTERVAL,
+    CONF_LAST_CALL_SESSION_UPDATE_INTERVAL,
+    MIN_LAST_CALL_SESSION_UPDATE_INTERVAL,
+    DEFAULT_LAST_CALL_SESSION_UPDATE_INTERVAL,
 )
-from .helpers import phone_validator
 
 _LOGGER: Final = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 class PikIntercomConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Inter RAO config entries."""
 
-    VERSION = 3
+    VERSION = 4
     CONNECTION_CLASS = CONN_CLASS_CLOUD_POLL
 
     async def async_submit_entry(self, user_input: Mapping[str, Any]) -> FlowResult:
@@ -85,10 +85,8 @@ class PikIntercomConfigFlow(ConfigFlow, domain=DOMAIN):
             },
             options={
                 CONF_DEVICE_ID: user_input[CONF_DEVICE_ID],
-                CONF_CALL_SESSIONS_UPDATE_INTERVAL: DEFAULT_CALL_SESSIONS_UPDATE_INTERVAL,
-                CONF_INTERCOMS_UPDATE_INTERVAL: DEFAULT_INTERCOMS_UPDATE_INTERVAL,
-                CONF_AUTH_UPDATE_INTERVAL: DEFAULT_AUTH_UPDATE_INTERVAL,
                 CONF_VERIFY_SSL: user_input[CONF_VERIFY_SSL],
+                **{key: value for key, (value, _) in _INTERVALS_WITH_DEFAULTS.items()},
             },
         )
 
@@ -162,8 +160,18 @@ STEP_INIT_DATA_SCHEMA = vol.Schema(
         vol.Required(CONF_AUTH_UPDATE_INTERVAL): cv.positive_time_period_dict,
         vol.Required(CONF_DEVICE_ID): cv.string,
         vol.Optional(CONF_VERIFY_SSL, default=True): cv.boolean,
+        # vol.Optional(CONF_PUSH_CREDENTIALS, default=False): cv.boolean,
     }
 )
+
+_INTERVALS_WITH_DEFAULTS = {
+    CONF_INTERCOMS_UPDATE_INTERVAL: (DEFAULT_INTERCOMS_UPDATE_INTERVAL, MIN_INTERCOMS_UPDATE_INTERVAL),
+    CONF_AUTH_UPDATE_INTERVAL: (DEFAULT_AUTH_UPDATE_INTERVAL, MIN_AUTH_UPDATE_INTERVAL),
+    CONF_LAST_CALL_SESSION_UPDATE_INTERVAL: (
+        DEFAULT_LAST_CALL_SESSION_UPDATE_INTERVAL,
+        MIN_LAST_CALL_SESSION_UPDATE_INTERVAL,
+    ),
+}
 
 
 class PikIntercomOptionsFlow(OptionsFlow):
@@ -174,58 +182,43 @@ class PikIntercomOptionsFlow(OptionsFlow):
         options = self._config_entry.options
         errors = {}
         description_placeholders = {}
-
-        normalized_configuration = {
-            key: (user_input[key].total_seconds() if user_input else options[key])
-            for key in (
-                CONF_INTERCOMS_UPDATE_INTERVAL,
-                CONF_CALL_SESSIONS_UPDATE_INTERVAL,
-                CONF_AUTH_UPDATE_INTERVAL,
-            )
-        }
+        normalized_configuration = {}
 
         if user_input:
-            verify_ssl = user_input[CONF_VERIFY_SSL]
+            for key in _INTERVALS_WITH_DEFAULTS:
+                normalized_configuration[key] = user_input[key].total_seconds()
+
+            normalized_configuration[CONF_VERIFY_SSL] = user_input[CONF_VERIFY_SSL]
+
             device_id = user_input[CONF_DEVICE_ID]
             if not re.fullmatch(r"[a-zA-Z0-9]+", device_id):
                 errors[CONF_DEVICE_ID] = "device_id_invalid_characters"
             elif len(device_id) < MIN_DEVICE_ID_LENGTH:
                 errors[CONF_DEVICE_ID] = "device_id_too_short"
+            normalized_configuration[CONF_DEVICE_ID] = device_id
 
-            for interval_key, min_interval in (
-                (CONF_INTERCOMS_UPDATE_INTERVAL, MIN_INTERCOMS_UPDATE_INTERVAL),
-                (CONF_CALL_SESSIONS_UPDATE_INTERVAL, MIN_CALL_SESSIONS_UPDATE_INTERVAL),
-                (CONF_AUTH_UPDATE_INTERVAL, MIN_AUTH_UPDATE_INTERVAL),
-            ):
+            for interval_key, (_, min_interval) in _INTERVALS_WITH_DEFAULTS.items():
                 if normalized_configuration[interval_key] < min_interval:
                     errors[interval_key] = interval_key + "_too_low"
                     description_placeholders["min_" + interval_key] = str(timedelta(seconds=min_interval))
 
             if not errors:
-                normalized_configuration[CONF_DEVICE_ID] = device_id
-                normalized_configuration[CONF_VERIFY_SSL] = verify_ssl
+                _LOGGER.debug(f"Saving options: {normalized_configuration}")
                 return self.async_create_entry(title="", data=normalized_configuration)
         else:
-            verify_ssl = options[CONF_VERIFY_SSL]
-            device_id = options[CONF_DEVICE_ID]
+            normalized_configuration = dict(options)
+
+        for interval_key in _INTERVALS_WITH_DEFAULTS:
+            current_value = normalized_configuration[interval_key]
+            normalized_configuration[interval_key] = {
+                "hours": current_value // 3600,
+                "minutes": (current_value % 3600) // 60,
+                "seconds": current_value % 60,
+            }
 
         return self.async_show_form(
             step_id="init",
-            data_schema=self.add_suggested_values_to_schema(
-                STEP_INIT_DATA_SCHEMA,
-                {
-                    CONF_DEVICE_ID: device_id,
-                    CONF_VERIFY_SSL: verify_ssl,
-                    **{
-                        interval_key: {
-                            "hours": current_value // 3600,
-                            "minutes": (current_value % 3600) // 60,
-                            "seconds": current_value % 60,
-                        }
-                        for interval_key, current_value in normalized_configuration.items()
-                    },
-                },
-            ),
+            data_schema=self.add_suggested_values_to_schema(STEP_INIT_DATA_SCHEMA, normalized_configuration),
             errors=errors,
             description_placeholders=description_placeholders,
         )
