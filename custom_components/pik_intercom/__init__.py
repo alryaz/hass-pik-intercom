@@ -9,7 +9,7 @@ __all__ = (
 import asyncio
 import logging
 from datetime import timedelta
-from typing import Final, List
+from typing import Final, List, Dict
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry, SOURCE_IMPORT
@@ -106,9 +106,11 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         return True
 
     # Import existing configurations
-    configured_users = {entry.data.get(CONF_USERNAME) for entry in hass.config_entries.async_entries(DOMAIN)}
+    configured_users: Dict[str, ConfigEntry] = {entry.data.get(CONF_USERNAME): entry for entry in hass.config_entries.async_entries(DOMAIN)}
     for user_cfg in domain_config:
-        if user_cfg.get(CONF_USERNAME) in configured_users:
+        if (username := user_cfg.get(CONF_USERNAME)) in configured_users:
+            if not ((entry := configured_users[username]).data.get(CONF_PASSWORD) or None)):
+                hass.config_entries.async_update_entry(entry, data={**entry.data, CONF_PASSWORD: user_cfg[CONF_PASSWORD]})
             continue
         hass.async_create_task(
             hass.config_entries.flow.async_init(
@@ -243,11 +245,6 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     data = dict(entry.data)
     options = dict(entry.options)
-
-    if entry.source == SOURCE_IMPORT:
-        # @TODO: this is because of CONF_PASSWORD, but we can update it
-        _LOGGER.error("Cannot migrate YAML entries below version 3; " "reconfigure integration")
-        return False
 
     options.setdefault(CONF_DEVICE_ID, entry.entry_id[-16:])
     options.setdefault(CONF_INTERCOMS_UPDATE_INTERVAL, DEFAULT_INTERCOMS_UPDATE_INTERVAL)
