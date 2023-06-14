@@ -9,7 +9,9 @@
             "user": {
                 "data": {
                     "username": "Username",
-                    "password": "Password"
+                    "password": "Password",
+                    "device_id": "Device identifier (automatically generated)",
+                    "verify_ssl": "Verify SSL"
                 },
                 "description": "Enter credentials for the PIK Intercom application.",
                 "title": "Authorization"

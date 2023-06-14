@@ -56,6 +56,15 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
     }
 )
 
+_INTERVALS_WITH_DEFAULTS = {
+    CONF_INTERCOMS_UPDATE_INTERVAL: (DEFAULT_INTERCOMS_UPDATE_INTERVAL, MIN_INTERCOMS_UPDATE_INTERVAL),
+    CONF_AUTH_UPDATE_INTERVAL: (DEFAULT_AUTH_UPDATE_INTERVAL, MIN_AUTH_UPDATE_INTERVAL),
+    CONF_LAST_CALL_SESSION_UPDATE_INTERVAL: (
+        DEFAULT_LAST_CALL_SESSION_UPDATE_INTERVAL,
+        MIN_LAST_CALL_SESSION_UPDATE_INTERVAL,
+    ),
+}
+
 
 class PikIntercomConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Inter RAO config entries."""
@@ -145,20 +154,15 @@ class PikIntercomConfigFlow(ConfigFlow, domain=DOMAIN):
         """Import configuration entries from YAML"""
         return (await self.async_submit_entry(user_input)) if user_input else self.async_abort(reason="unknown_error")
 
+    async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> FlowResult:
+        # @TODO
+        raise NotImplementedError
+
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
         return PikIntercomOptionsFlow(config_entry)
 
-
-_INTERVALS_WITH_DEFAULTS = {
-    CONF_INTERCOMS_UPDATE_INTERVAL: (DEFAULT_INTERCOMS_UPDATE_INTERVAL, MIN_INTERCOMS_UPDATE_INTERVAL),
-    CONF_AUTH_UPDATE_INTERVAL: (DEFAULT_AUTH_UPDATE_INTERVAL, MIN_AUTH_UPDATE_INTERVAL),
-    CONF_LAST_CALL_SESSION_UPDATE_INTERVAL: (
-        DEFAULT_LAST_CALL_SESSION_UPDATE_INTERVAL,
-        MIN_LAST_CALL_SESSION_UPDATE_INTERVAL,
-    ),
-}
 
 STEP_INIT_DATA_SCHEMA = vol.Schema(
     {
