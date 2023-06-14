@@ -75,6 +75,7 @@ def async_add_new_iot_cameras(
 
 @callback
 def async_add_new_iot_intercoms(
+    coordinator: PikIntercomIotIntercomsUpdateCoordinator,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     try:
@@ -93,13 +94,6 @@ def async_add_new_iot_intercoms(
             entity = PikIntercomIotIntercomCamera(
                 coordinator,
                 device=intercom,
-            )
-
-            # Do not enable ca
-            setattr(
-                entity,
-                "_attr_entity_registry_enabled_default",
-                (intercom.has_camera and not any(relay.has_camera for relay in intercom.relays)),
             )
             new_entities.append(entity)
             entities_intercoms[intercom_id] = entity
@@ -198,9 +192,13 @@ class _BaseIntercomCamera(BasePikIntercomCoordinatorEntity[_T, _TT], Camera, ABC
 
         if isinstance(device, PikObjectWithVideo):
             extra_state_attributes["stream_url"] = stream_source = device.stream_url
-            if (stream := self.stream) and stream_source != stream.source:
-                _LOGGER.debug(f"[{self}] Изменение URL потока: " f"{stream.source} ---> {stream_source}")
-                stream.update_source(stream_source)
+            if stream := self.stream:
+                if stream_source != stream.source:
+                    _LOGGER.debug(
+                        f"[{self._attr_unique_id}] Изменение URL потока: {stream.source} ---> {stream_source}"
+                    )
+                    stream.source = stream_source
+                    setattr(stream, "_fast_restart_once", True)
 
         if isinstance(device, PikObjectWithSnapshot):
             extra_state_attributes["photo_url"] = device.snapshot_url
@@ -289,6 +287,7 @@ class PikIntercomIotIntercomCamera(BasePikIntercomIotIntercomEntity, _BaseInterc
     """Entity representation of an IoT intercom camera."""
 
     UNIQUE_ID_FORMAT = "iot_intercom__{}__camera"
+    _attr_entity_registry_enabled_default = False
 
 
 class PikIntercomIotRelayCamera(BasePikIntercomIotRelayEntity, _BaseIntercomCamera):

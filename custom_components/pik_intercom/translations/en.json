@@ -24,16 +24,14 @@
             "device_id_invalid_characters": "Device identifier may only contain alphanumeric characters (a-z, A-Z, 0-9)",
             "device_id_too_short": "Minimum device identifier length — {min_device_id_length} symbols"
         },
-        "abort": {
-            "yaml_not_supported": "YAML configuration not supported."
-        },
         "step": {
             "init": {
                 "data": {
                     "auth_update_interval": "Authentication update interval",
                     "intercoms_update_interval": "Intercoms update interval",
                     "call_sessions_update_interval": "Call sessions update interval",
-                    "device_id": "Device identifier"
+                    "device_id": "Device identifier",
+                    "verify_ssl": "Verify SSL"
                 }
             }
         }

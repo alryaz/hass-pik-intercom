@@ -184,7 +184,6 @@ class BasePikIntercomPropertyDeviceEntity(
 
     def _update_attr(self) -> None:
         super()._update_attr()
-        coordinator = self.coordinator
         device = self._internal_object
         self._attr_device_info.update(
             manufacturer=device.device_category or MANUFACTURER,

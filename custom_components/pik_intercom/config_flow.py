@@ -155,19 +155,27 @@ class PikIntercomConfigFlow(ConfigFlow, domain=DOMAIN):
         return PikIntercomOptionsFlow(config_entry)
 
 
+STEP_INIT_DATA_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_INTERCOMS_UPDATE_INTERVAL): cv.positive_time_period_dict,
+        vol.Required(CONF_CALL_SESSIONS_UPDATE_INTERVAL): cv.positive_time_period_dict,
+        vol.Required(CONF_AUTH_UPDATE_INTERVAL): cv.positive_time_period_dict,
+        vol.Required(CONF_DEVICE_ID): cv.string,
+        vol.Optional(CONF_VERIFY_SSL, default=True): cv.boolean,
+    }
+)
+
+
 class PikIntercomOptionsFlow(OptionsFlow):
     def __init__(self, config_entry: ConfigEntry) -> None:
         self._config_entry = config_entry
 
     async def async_step_init(self, user_input: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        if self._config_entry.source == SOURCE_IMPORT:
-            return self.async_abort(reason="yaml_config_unsupported")
-
         options = self._config_entry.options
         errors = {}
         description_placeholders = {}
 
-        interval_values = {
+        normalized_configuration = {
             key: (user_input[key].total_seconds() if user_input else options[key])
             for key in (
                 CONF_INTERCOMS_UPDATE_INTERVAL,
@@ -177,6 +185,7 @@ class PikIntercomOptionsFlow(OptionsFlow):
         }
 
         if user_input:
+            verify_ssl = user_input[CONF_VERIFY_SSL]
             device_id = user_input[CONF_DEVICE_ID]
             if not re.fullmatch(r"[a-zA-Z0-9]+", device_id):
                 errors[CONF_DEVICE_ID] = "device_id_invalid_characters"
@@ -184,42 +193,39 @@ class PikIntercomOptionsFlow(OptionsFlow):
                 errors[CONF_DEVICE_ID] = "device_id_too_short"
 
             for interval_key, min_interval in (
-                (
-                    CONF_INTERCOMS_UPDATE_INTERVAL,
-                    MIN_INTERCOMS_UPDATE_INTERVAL,
-                ),
-                (
-                    CONF_CALL_SESSIONS_UPDATE_INTERVAL,
-                    MIN_CALL_SESSIONS_UPDATE_INTERVAL,
-                ),
+                (CONF_INTERCOMS_UPDATE_INTERVAL, MIN_INTERCOMS_UPDATE_INTERVAL),
+                (CONF_CALL_SESSIONS_UPDATE_INTERVAL, MIN_CALL_SESSIONS_UPDATE_INTERVAL),
                 (CONF_AUTH_UPDATE_INTERVAL, MIN_AUTH_UPDATE_INTERVAL),
             ):
-                if interval_values[interval_key] < min_interval:
+                if normalized_configuration[interval_key] < min_interval:
                     errors[interval_key] = interval_key + "_too_low"
                     description_placeholders["min_" + interval_key] = str(timedelta(seconds=min_interval))
 
             if not errors:
-                interval_values[CONF_DEVICE_ID] = device_id
-                return self.async_create_entry(title="", data=interval_values)
+                normalized_configuration[CONF_DEVICE_ID] = device_id
+                normalized_configuration[CONF_VERIFY_SSL] = verify_ssl
+                return self.async_create_entry(title="", data=normalized_configuration)
         else:
+            verify_ssl = options[CONF_VERIFY_SSL]
             device_id = options[CONF_DEVICE_ID]
-
-        schema_dict = {
-            vol.Required(
-                interval_key,
-                default={
-                    "hours": current_value // 3600,
-                    "minutes": (current_value % 3600) // 60,
-                    "seconds": current_value % 60,
-                },
-            ): cv.positive_time_period_dict
-            for interval_key, current_value in interval_values.items()
-        }
-        schema_dict[vol.Required(CONF_DEVICE_ID, default=device_id)] = cv.string
 
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema(schema_dict),
+            data_schema=self.add_suggested_values_to_schema(
+                STEP_INIT_DATA_SCHEMA,
+                {
+                    CONF_DEVICE_ID: device_id,
+                    CONF_VERIFY_SSL: verify_ssl,
+                    **{
+                        interval_key: {
+                            "hours": current_value // 3600,
+                            "minutes": (current_value % 3600) // 60,
+                            "seconds": current_value % 60,
+                        }
+                        for interval_key, current_value in normalized_configuration.items()
+                    },
+                },
+            ),
             errors=errors,
             description_placeholders=description_placeholders,
         )
