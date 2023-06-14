@@ -106,15 +106,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         return True
 
     # Import existing configurations
-    configured_users: Dict[str, ConfigEntry] = {
-        entry.data.get(CONF_USERNAME): entry for entry in hass.config_entries.async_entries(DOMAIN)
-    }
+    configured_users = {entry.data.get(CONF_USERNAME) for entry in hass.config_entries.async_entries(DOMAIN)}
     for user_cfg in domain_config:
-        if (username := user_cfg.get(CONF_USERNAME)) in configured_users:
-            if not ((entry := configured_users[username]).data.get(CONF_PASSWORD) or None):
-                hass.config_entries.async_update_entry(
-                    entry, data={**entry.data, CONF_PASSWORD: user_cfg[CONF_PASSWORD]}
-                )
+        if user_cfg.get(CONF_USERNAME) in configured_users:
             continue
         hass.async_create_task(
             hass.config_entries.flow.async_init(
