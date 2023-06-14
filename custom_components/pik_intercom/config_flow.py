@@ -29,23 +29,21 @@ from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .helpers import phone_validator
 from .api import PikIntercomAPI, PikIntercomException
 from .const import (
-    CONF_CALL_SESSIONS_UPDATE_INTERVAL,
+    CONF_AUTH_UPDATE_INTERVAL,
     CONF_INTERCOMS_UPDATE_INTERVAL,
+    CONF_LAST_CALL_SESSION_UPDATE_INTERVAL,
+    DEFAULT_AUTH_UPDATE_INTERVAL,
+    DEFAULT_INTERCOMS_UPDATE_INTERVAL,
+    DEFAULT_LAST_CALL_SESSION_UPDATE_INTERVAL,
     DOMAIN,
     MIN_AUTH_UPDATE_INTERVAL,
     MIN_DEVICE_ID_LENGTH,
     MIN_INTERCOMS_UPDATE_INTERVAL,
-    DEFAULT_INTERCOMS_UPDATE_INTERVAL,
-    DEFAULT_CALL_SESSIONS_UPDATE_INTERVAL,
-    DEFAULT_AUTH_UPDATE_INTERVAL,
-    CONF_AUTH_UPDATE_INTERVAL,
-    CONF_LAST_CALL_SESSION_UPDATE_INTERVAL,
     MIN_LAST_CALL_SESSION_UPDATE_INTERVAL,
-    DEFAULT_LAST_CALL_SESSION_UPDATE_INTERVAL,
 )
+from .helpers import phone_validator
 
 _LOGGER: Final = logging.getLogger(__name__)
 
@@ -62,7 +60,7 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 class PikIntercomConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Inter RAO config entries."""
 
-    VERSION = 4
+    VERSION = 5
     CONNECTION_CLASS = CONN_CLASS_CLOUD_POLL
 
     async def async_submit_entry(self, user_input: Mapping[str, Any]) -> FlowResult:
@@ -77,7 +75,7 @@ class PikIntercomConfigFlow(ConfigFlow, domain=DOMAIN):
             title=(
                 username
                 if "@" in username
-                else (f"+{username[1]} ({username[2:5]}) " f"{username[5:8]}-{username[8:10]}-{username[10:]}")
+                else f"+{username[1]} ({username[2:5]}) {username[5:8]}-{username[8:10]}-{username[10:]}"
             ),
             data={
                 CONF_USERNAME: username,
@@ -153,17 +151,6 @@ class PikIntercomConfigFlow(ConfigFlow, domain=DOMAIN):
         return PikIntercomOptionsFlow(config_entry)
 
 
-STEP_INIT_DATA_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_INTERCOMS_UPDATE_INTERVAL): cv.positive_time_period_dict,
-        vol.Required(CONF_CALL_SESSIONS_UPDATE_INTERVAL): cv.positive_time_period_dict,
-        vol.Required(CONF_AUTH_UPDATE_INTERVAL): cv.positive_time_period_dict,
-        vol.Required(CONF_DEVICE_ID): cv.string,
-        vol.Optional(CONF_VERIFY_SSL, default=True): cv.boolean,
-        # vol.Optional(CONF_PUSH_CREDENTIALS, default=False): cv.boolean,
-    }
-)
-
 _INTERVALS_WITH_DEFAULTS = {
     CONF_INTERCOMS_UPDATE_INTERVAL: (DEFAULT_INTERCOMS_UPDATE_INTERVAL, MIN_INTERCOMS_UPDATE_INTERVAL),
     CONF_AUTH_UPDATE_INTERVAL: (DEFAULT_AUTH_UPDATE_INTERVAL, MIN_AUTH_UPDATE_INTERVAL),
@@ -172,6 +159,14 @@ _INTERVALS_WITH_DEFAULTS = {
         MIN_LAST_CALL_SESSION_UPDATE_INTERVAL,
     ),
 }
+
+STEP_INIT_DATA_SCHEMA = vol.Schema(
+    {
+        **{vol.Required(key): cv.positive_time_period_dict for key in _INTERVALS_WITH_DEFAULTS},
+        vol.Required(CONF_DEVICE_ID): cv.string,
+        vol.Optional(CONF_VERIFY_SSL, default=True): cv.boolean,
+    }
+)
 
 
 class PikIntercomOptionsFlow(OptionsFlow):

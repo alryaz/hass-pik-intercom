@@ -9,20 +9,11 @@ __all__ = (
 import asyncio
 import logging
 from datetime import timedelta
-from typing import (
-    Final,
-    List,
-)
-
+from typing import Final, List
 import voluptuous as vol
+
 from homeassistant.config_entries import ConfigEntry, SOURCE_IMPORT
-from homeassistant.const import (
-    CONF_DEVICE_ID,
-    CONF_PASSWORD,
-    CONF_USERNAME,
-    Platform,
-    CONF_VERIFY_SSL,
-)
+from homeassistant.const import CONF_DEVICE_ID, CONF_PASSWORD, CONF_USERNAME, CONF_VERIFY_SSL, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady, ConfigEntryAuthFailed
 from homeassistant.helpers import config_validation as cv
@@ -30,34 +21,26 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.typing import ConfigType
 
-from custom_components.pik_intercom.api import (
-    DEFAULT_CLIENT_APP,
-    DEFAULT_CLIENT_OS,
-    DEFAULT_CLIENT_VERSION,
-    DEFAULT_USER_AGENT,
-    PikIntercomAPI,
-    PikIntercomException,
-)
+from custom_components.pik_intercom.api import PikIntercomAPI, PikIntercomException
 from custom_components.pik_intercom.const import (
     CONF_AUTH_UPDATE_INTERVAL,
-    CONF_CALL_SESSIONS_UPDATE_INTERVAL,
     CONF_INTERCOMS_UPDATE_INTERVAL,
     DATA_REAUTHENTICATORS,
     DEFAULT_AUTH_UPDATE_INTERVAL,
-    DEFAULT_CALL_SESSIONS_UPDATE_INTERVAL,
     DEFAULT_INTERCOMS_UPDATE_INTERVAL,
     DOMAIN,
     MIN_AUTH_UPDATE_INTERVAL,
-    MIN_CALL_SESSIONS_UPDATE_INTERVAL,
     MIN_DEVICE_ID_LENGTH,
     MIN_INTERCOMS_UPDATE_INTERVAL,
+    CONF_LAST_CALL_SESSION_UPDATE_INTERVAL,
+    DEFAULT_LAST_CALL_SESSION_UPDATE_INTERVAL,
 )
-from .helpers import (
+from custom_components.pik_intercom.helpers import (
     phone_validator,
     patch_haffmpeg,
     mask_username,
 )
-from .entity import (
+from custom_components.pik_intercom.entity import (
     BasePikIntercomUpdateCoordinator,
     PikIntercomPropertyIntercomsUpdateCoordinator,
     PikIntercomIotIntercomsUpdateCoordinator,
@@ -68,7 +51,7 @@ from .entity import (
 
 _LOGGER: Final = logging.getLogger(__name__)
 
-PLATFORMS = (
+PLATFORMS: Final = (
     Platform.BUTTON,
     Platform.CAMERA,
     Platform.SENSOR,
@@ -84,31 +67,6 @@ _BASE_CONFIG_ENTRY_SCHEMA: Final = vol.Schema(
             vol.Equal(None),
             vol.All(cv.string, vol.Length(min=MIN_DEVICE_ID_LENGTH)),
         ),
-        # Update intervals (DEPRECATED OPTIONS)
-        vol.Optional(
-            CONF_INTERCOMS_UPDATE_INTERVAL,
-            default=timedelta(seconds=DEFAULT_INTERCOMS_UPDATE_INTERVAL),
-            description="Intercoms update interval",
-        ): vol.All(
-            cv.positive_time_period,
-            vol.Clamp(min=timedelta(seconds=MIN_CALL_SESSIONS_UPDATE_INTERVAL)),
-        ),
-        vol.Optional(
-            CONF_CALL_SESSIONS_UPDATE_INTERVAL,
-            default=timedelta(seconds=DEFAULT_CALL_SESSIONS_UPDATE_INTERVAL),
-            description="Call sessions update interval",
-        ): vol.All(
-            cv.positive_time_period,
-            vol.Clamp(min=timedelta(seconds=MIN_CALL_SESSIONS_UPDATE_INTERVAL)),
-        ),
-        vol.Optional(
-            CONF_AUTH_UPDATE_INTERVAL,
-            default=timedelta(seconds=DEFAULT_AUTH_UPDATE_INTERVAL),
-            description="Authentication update interval",
-        ): vol.All(
-            cv.positive_time_period,
-            vol.Clamp(min=timedelta(seconds=MIN_AUTH_UPDATE_INTERVAL)),
-        ),
     }
 )
 
@@ -118,10 +76,9 @@ CONFIG_ENTRY_SCHEMA: Final = vol.All(
     cv.removed("client_os", raise_if_present=False),
     cv.removed("client_version", raise_if_present=False),
     cv.removed("user_agent", raise_if_present=False),
-    # Deprecate interval configurations
-    cv.deprecated(CONF_INTERCOMS_UPDATE_INTERVAL),
-    cv.deprecated(CONF_AUTH_UPDATE_INTERVAL),
-    cv.deprecated(CONF_CALL_SESSIONS_UPDATE_INTERVAL),
+    cv.removed("call_sessions_update_interval", raise_if_present=False),
+    cv.removed(CONF_AUTH_UPDATE_INTERVAL, raise_if_present=False),
+    cv.removed(CONF_INTERCOMS_UPDATE_INTERVAL, raise_if_present=False),
     # Validate base schema
     _BASE_CONFIG_ENTRY_SCHEMA,
 )
@@ -138,7 +95,7 @@ CONFIG_SCHEMA: Final = vol.Schema(
 )
 
 
-async def async_setup(hass: HomeAssistant, config: ConfigType):
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the PIK Intercom component."""
     # Patch HAffmpeg
     # @TODO: check if still required
@@ -263,22 +220,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         timedelta(seconds=entry.options[CONF_AUTH_UPDATE_INTERVAL]),
     )
 
-    # # @TODO: code above must be uncommented to work
-    # if push_credentials:
-    #     def async_handle_notification(obj, notification, data_message):
-    #         _LOGGER.info(f"Received notification object: {obj}")
-    #         _LOGGER.info(f"Received notification type: {notification}")
-    #         _LOGGER.info(f"Received notification data_message: {data_message}")
-    #
-    #     async def async_listen_notifications(*_):
-    #         from push_receiver.push_receiver import PushReceiver
-    #
-    #         await hass.async_add_executor_job(PushReceiver(push_credentials).listen, async_handle_notification)
-    #
-    #     hass.data.setdefault(DATA_PUSH_RECEIVERS, {})[config_entry_id] = hass.async_create_background_task(
-    #         async_listen_notifications(), name="notification listener"
-    #     )
-
     # Forward entry setup to sensor platform
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
@@ -303,35 +244,18 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     data = dict(entry.data)
     options = dict(entry.options)
 
-    if entry.version < 3:
-        if entry.source == SOURCE_IMPORT:
-            # @TODO: this is because of CONF_PASSWORD, but we can update it
-            _LOGGER.error("Cannot migrate YAML entries below version 3; " "reconfigure integration")
-            return False
+    if entry.source == SOURCE_IMPORT:
+        # @TODO: this is because of CONF_PASSWORD, but we can update it
+        _LOGGER.error("Cannot migrate YAML entries below version 3; " "reconfigure integration")
+        return False
 
-        options.setdefault(
-            CONF_DEVICE_ID,
-            entry.entry_id[-16:],
-        )
-        options.setdefault(
-            CONF_INTERCOMS_UPDATE_INTERVAL,
-            DEFAULT_INTERCOMS_UPDATE_INTERVAL,
-        )
-        options.setdefault(
-            CONF_CALL_SESSIONS_UPDATE_INTERVAL,
-            DEFAULT_CALL_SESSIONS_UPDATE_INTERVAL,
-        )
-        options.setdefault(
-            CONF_AUTH_UPDATE_INTERVAL,
-            DEFAULT_AUTH_UPDATE_INTERVAL,
-        )
-        options.setdefault(
-            CONF_VERIFY_SSL,
-            True,
-        )
+    options.setdefault(CONF_DEVICE_ID, entry.entry_id[-16:])
+    options.setdefault(CONF_INTERCOMS_UPDATE_INTERVAL, DEFAULT_INTERCOMS_UPDATE_INTERVAL)
+    options.setdefault(CONF_LAST_CALL_SESSION_UPDATE_INTERVAL, DEFAULT_LAST_CALL_SESSION_UPDATE_INTERVAL)
+    options.setdefault(CONF_AUTH_UPDATE_INTERVAL, DEFAULT_AUTH_UPDATE_INTERVAL)
+    options.setdefault(CONF_VERIFY_SSL, True)
 
-    if entry.version < 4:
-        options[CONF_PUSH_CREDENTIALS] = None
+    options.pop("call_sessions_update_interval", None)
 
     entry.version = PikIntercomConfigFlow.VERSION
     hass.config_entries.async_update_entry(entry, data=data, options=options)
@@ -339,14 +263,10 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         # Clear authentication updater
         if auth_updater := hass.data.get(DATA_REAUTHENTICATORS, {}).pop(entry.entry_id, None):
             auth_updater()
-
-        # Cancel push receiver
-        if push_receiver := hass.data.get(DATA_PUSH_RECEIVERS, {}).pop(entry.entry_id, None):
-            push_receiver.cancel()
 
     return unload_ok
