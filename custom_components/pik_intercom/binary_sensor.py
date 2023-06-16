@@ -28,15 +28,23 @@ async def async_setup_entry(
 class PikIntercomLastCallSessionSensor(BasePikIntercomLastCallSessionEntity, BinarySensorEntity):
     # _attr_icon = "mdi:phone"
     _attr_device_class = BinarySensorDeviceClass.SOUND
+    _attr_name = "Active"
+    _attr_translation_key = "last_call_session_active"
+    _attr_icon = "mdi:phone-hangup"
 
     def _update_attr(self) -> None:
         super()._update_attr()
-        self._attr_name = "Active Call Session"
 
         if not (call_session := self._internal_object):
+            self._attr_is_on = False
             return
 
         self._attr_is_on = call_session.notified_at and not call_session.finished_at
+        self._attr_icon = (
+            ("mdi:phone-in-talk" if call_session.pickedup_at else "mdi:phone-ring")
+            if self._attr_is_on
+            else "mdi:phone-hangup"
+        )
         self._attr_extra_state_attributes.update(
             {
                 "property_id": call_session.property_id,

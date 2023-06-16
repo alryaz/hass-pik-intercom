@@ -175,6 +175,8 @@ class _BaseIntercomCamera(BasePikIntercomEntity[_T, _TT], Camera, ABC, Generic[_
     _attr_icon = "mdi:doorbell-video"
     _attr_supported_features = CameraEntityFeature.STREAM
     _attr_motion_detection_enabled = False
+    _attr_name = "Intercom"
+    _attr_translation_key = "intercom"
 
     def __init__(self, *args, **kwargs) -> None:
         Camera.__init__(self)
@@ -272,6 +274,9 @@ class PikIntercomPropertyDeviceCamera(_BaseIntercomCamera, BasePikIntercomProper
 
     UNIQUE_ID_FORMAT = BasePikIntercomPropertyDeviceEntity.UNIQUE_ID_FORMAT + "__camera"
 
+    _attr_name = "Intercom"
+    _attr_translation_key = "intercom"
+
     def _update_attr(self) -> None:
         super()._update_attr()
         device = self._internal_object
@@ -287,6 +292,9 @@ class PikIntercomIotDiscreteCamera(BasePikIntercomIotCameraEntity, _BaseIntercom
 
     UNIQUE_ID_FORMAT = "iot_camera__{}__camera"
 
+    _attr_name = "Camera"
+    _attr_translation_key = "camera"
+
 
 class PikIntercomIotIntercomCamera(BasePikIntercomIotIntercomEntity, _BaseIntercomCamera):
     """Entity representation of an IoT intercom camera."""
@@ -294,8 +302,18 @@ class PikIntercomIotIntercomCamera(BasePikIntercomIotIntercomEntity, _BaseInterc
     UNIQUE_ID_FORMAT = "iot_intercom__{}__camera"
     _attr_entity_registry_enabled_default = False
 
+    def _update_attr(self) -> None:
+        super()._update_attr()
+        self._attr_extra_state_attributes["relay_ids"] = [relay.id for relay in self._internal_object.relays]
+
 
 class PikIntercomIotRelayCamera(BasePikIntercomIotRelayEntity, _BaseIntercomCamera):
     """Entity representation of an IoT relay camera."""
 
     UNIQUE_ID_FORMAT = "iot_relay__{}__camera"
+
+    def _update_attr(self) -> None:
+        super()._update_attr()
+        self._attr_extra_state_attributes["intercom_id"] = (
+            intercom.id if (intercom := self.related_iot_intercom) else None
+        )

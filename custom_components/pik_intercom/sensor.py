@@ -99,41 +99,42 @@ class _BasePikIntercomMeterSensor(BasePikIntercomIotMeterEntity, SensorEntity):
     _attr_device_class = SensorDeviceClass.VOLUME
     _attr_native_unit_of_measurement = UnitOfVolume.CUBIC_METERS
     _attr_suggested_display_precision = 3
+    _attr_translation_key = "meter"
 
 
 class PikIntercomMeterTotalSensor(_BasePikIntercomMeterSensor):
     UNIQUE_ID_FORMAT = "iot_meter__{}__total"
 
+    _attr_name = "Current Indication"
     _attr_icon = "mdi:counter"
 
     def _update_attr(self) -> None:
         super()._update_attr()
-        self._attr_name = f"{self._common_device_name} Current Indication"
         self._attr_native_value = self._internal_object.current_value_numeric
 
 
 class PikIntercomMeterMonthSensor(_BasePikIntercomMeterSensor):
     UNIQUE_ID_FORMAT = "iot_meter__{}__month"
 
+    _attr_name = "Monthly Usage"
     _attr_icon = "mdi:water-plus"
 
     def _update_attr(self) -> None:
         super()._update_attr()
-        self._attr_name = f"{self._common_device_name} Month Indication"
         self._attr_native_value = self._internal_object.month_value_numeric
 
 
 class _BasePikIntercomLastCallSessionTimestampSensor(BasePikIntercomLastCallSessionEntity, SensorEntity, ABC):
     _attr_device_class = SensorDeviceClass.TIMESTAMP
-    _timestamp_name_suffix: str = None
+    _attr_translation_key = "timestamp"
 
     def _update_attr(self) -> None:
         super()._update_attr()
-        self._attr_name = f"{self._common_device_name} {self._timestamp_name_suffix}"
-        if self.coordinator.data and (timestamp := self.timestamp):
-            self._attr_available = True
-            self._attr_native_value = timestamp
-        elif getattr(self, "_attr_native_value", None) is None:
+        self._attr_name = self.__class__._attr_name
+        if self._internal_object:
+            self._attr_native_value = (timestamp := self.timestamp)
+            self._attr_available = timestamp is not None
+        else:
             self._attr_available = False
 
     @property
@@ -145,31 +146,33 @@ class _BasePikIntercomLastCallSessionTimestampSensor(BasePikIntercomLastCallSess
 class PikIntercomLastCallSessionCreatedAtSensor(_BasePikIntercomLastCallSessionTimestampSensor):
     UNIQUE_ID_FORMAT = f"{_BasePikIntercomLastCallSessionTimestampSensor.UNIQUE_ID_FORMAT}__created_at"
 
-    _timestamp_name_suffix = "Created At"
+    _attr_name = "Created At"
+    _attr_translation_key = "created_at"
 
     @property
     def timestamp(self) -> Optional[datetime]:
-        if device := self.coordinator.data:
-            return device.created_at
+        return self._internal_object.created_at
 
 
 class PikIntercomLastCallSessionPickedUpAtSensor(_BasePikIntercomLastCallSessionTimestampSensor):
     UNIQUE_ID_FORMAT = f"{_BasePikIntercomLastCallSessionTimestampSensor.UNIQUE_ID_FORMAT}__picked_up_at"
 
-    _timestamp_name_suffix = "Picked Up at"
+    _attr_name = "Picked Up At"
+    _attr_translation_key = "picked_up_at"
 
     @property
     def timestamp(self) -> Optional[datetime]:
-        if device := self.coordinator.data:
-            return device.pickedup_at
+        return self._internal_object.pickedup_at
 
 
 class PikIntercomLastCallSessionFinishedAtSensor(_BasePikIntercomLastCallSessionTimestampSensor):
     UNIQUE_ID_FORMAT = f"{_BasePikIntercomLastCallSessionTimestampSensor.UNIQUE_ID_FORMAT}__finished_at"
 
+    _attr_name = "Finished At"
+
     _timestamp_name_suffix = "Finished At"
+    _attr_translation_key = "finished_at"
 
     @property
     def timestamp(self) -> Optional[datetime]:
-        if device := self.coordinator.data:
-            return device.finished_at
+        return self._internal_object.finished_at

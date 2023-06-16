@@ -1,42 +1,219 @@
 {
-    "config": {
-        "error": {
-            "authentication_error": "Ошибка авторизации! Это может быть связано с неправильными данными авторизации или связью с сервером",
-            "api_load_error": "Ошибка загрузки программного интерфейса. Пожалуйста, незамедлительно сообщите об этом разработчику!",
-            "empty_account": "К учётной записи нет привязанных объектов учёта (владений)"
-        },
-        "step": {
-            "user": {
-                "data": {
-                    "username": "Имя пользователя",
-                    "password": "Пароль",
-                    "device_id": "Идентификатор устройства (создан автоматически)",
-                    "verify_ssl": "Проверять SSL-сертификаты"
-                },
-                "description": "Введите данные для входа в приложение ПИК Домофон.",
-                "title": "Авторизация"
-            }
-        }
+  "config": {
+    "error": {
+      "already_configured": "Аккаунт уже добавлен!",
+      "authentication_error": "Ошибка авторизации! Это может быть связано с неправильными данными авторизации или связью с сервером",
+      "api_load_error": "Ошибка загрузки программного интерфейса. Пожалуйста, незамедлительно сообщите об этом разработчику!"
     },
-    "options": {
-        "error": {
-            "auth_update_interval_too_low": "Интервал слишком мал (минимум: {min_auth_update_interval}с)",
-            "intercoms_update_interval_too_low": "Интервал слишком мал (минимум: {min_intercoms_update_interval}с)",
-            "last_call_session_update_interval_too_low": "Интервал слишком мал (минимум: {min_last_call_session_update_interval}с)",
-            "device_id_invalid_characters": "Идентификатор устройства может содержать только буквенно-цифровые латинские символы (a-z, A-Z, 0-9)",
-            "device_id_too_short": "Минимальная длина идентификатора — {min_device_id_length} символов"
+    "step": {
+      "user": {
+        "data": {
+          "username": "Имя пользователя",
+          "password": "Пароль",
+          "device_id": "Идентификатор устройства (создан автоматически)",
+          "verify_ssl": "Проверять SSL-сертификаты"
         },
-        "step": {
-            "init": {
-                "data": {
-                    "auth_update_interval": "Интервал обновления авторизации",
-                    "intercoms_update_interval": "Интервал обновления домофонов",
-                    "call_sessions_update_interval": "Интервал обновления вызовов",
-                    "device_id": "Идентификатор устройства",
-                    "verify_ssl": "Проверять SSL-сертификаты"
-                }
-            }
-        }
+        "description": "Введите данные для входа в приложение ПИК Домофон.",
+        "title": "Авторизация"
+      }
+    }
+  },
+  "options": {
+    "error": {
+      "auth_update_interval_too_low": "Интервал слишком мал (минимум: {min_auth_update_interval}с)",
+      "intercoms_update_interval_too_low": "Интервал слишком мал (минимум: {min_intercoms_update_interval}с)",
+      "last_call_session_update_interval_too_low": "Интервал слишком мал (минимум: {min_last_call_session_update_interval}с)",
+      "device_id_invalid_characters": "Идентификатор устройства может содержать только буквенно-цифровые латинские символы (a-z, A-Z, 0-9)",
+      "device_id_too_short": "Минимальная длина идентификатора — {min_device_id_length} символов"
     },
-    "title": "ПИК Домофон"
+    "step": {
+      "init": {
+        "data": {
+          "auth_update_interval": "Интервал обновления авторизации",
+          "intercoms_update_interval": "Интервал обновления домофонов",
+          "call_sessions_update_interval": "Интервал обновления вызовов",
+          "device_id": "Идентификатор устройства",
+          "verify_ssl": "Проверять SSL-сертификаты"
+        }
+      }
+    }
+  },
+  "entity": {
+    "button": {
+      "unlocker": {
+        "name": "Открытие",
+        "state_attributes": {
+          "id": {
+            "name": "Идентификатор объекта"
+          },
+          "target_relay_ids": {
+            "name": "Идентификаторы реле открытия"
+          },
+          "original_name": {
+            "name": "Имя по умолчанию"
+          },
+          "custom_name": {
+            "name": "Заданное имя"
+          },
+          "is_favorite": {
+            "name": "В избранных",
+            "state": {
+              "false": "Нет",
+              "true": "Да"
+            }
+          },
+          "is_hidden": {
+            "name": "В скрытых",
+            "state": {
+              "false": "Нет",
+              "true": "Да"
+            }
+          },
+          "location": {
+            "name": "Местоположение"
+          }
+        }
+      }
+    },
+    "sensor": {
+      "meter": {
+        "name": "Счётчик",
+        "state_attributes": {
+          "id": {
+            "name": "Идентификатор объекта"
+          },
+          "kind": {
+            "name": "Тип устройства",
+            "state": {
+              "cold": "Холодное водоснабжение",
+              "hot": "Горячее водоснабжение"
+            }
+          },
+          "pipe_identifier": {
+            "name": "Номер трубопровода"
+          },
+          "location": {
+            "name": "Местоположение"
+          }
+        }
+      },
+      "last_call_session_created_at": {
+        "name": "Последний вызов",
+        "state_attributes": {
+          "id": {
+            "name": "Идентификатор вызова"
+          },
+          "location": {
+            "name": "Местоположение"
+          }
+        }
+      },
+      "last_call_session_picked_up_at": {
+        "name": "Принятие вызова",
+        "state_attributes": {
+          "id": {
+            "name": "Идентификатор вызова"
+          },
+          "location": {
+            "name": "Местоположение"
+          }
+        }
+      },
+      "last_call_session_finished_at": {
+        "name": "Завершение вызова",
+        "state_attributes": {
+          "id": {
+            "name": "Идентификатор вызова"
+          },
+          "location": {
+            "name": "Местоположение"
+          }
+        }
+      }
+    },
+    "camera": {
+      "camera": {
+        "name": "Камера",
+        "state_attributes": {
+          "id": {
+            "name": "Идентификатор объекта"
+          },
+          "stream_url": {
+            "name": "Ссылка на видеопоток"
+          },
+          "snapshot_url": {
+            "name": "Ссылка на снимок"
+          },
+          "sip_user": {
+            "name": "Пользователь SIP"
+          },
+          "sip_password": {
+            "name": "Пароль SIP"
+          },
+          "face_detection": {
+            "name": "Определение лиц"
+          }
+        }
+      },
+      "intercom": {
+        "name": "Домофон",
+        "state_attributes": {
+          "id": {
+            "name": "Идентификатор объекта"
+          },
+          "intercom_id": {
+            "name": "Идентификатор домофона"
+          },
+          "relay_ids": {
+            "name": "Идентификаторы реле открытия"
+          },
+          "stream_url": {
+            "name": "Ссылка на видеопоток"
+          },
+          "snapshot_url": {
+            "name": "Ссылка на снимок"
+          },
+          "sip_user": {
+            "name": "Пользователь SIP"
+          },
+          "sip_password": {
+            "name": "Пароль SIP"
+          },
+          "face_detection": {
+            "name": "Определение лиц"
+          }
+        }
+      }
+    },
+    "binary_sensor": {
+      "last_call_session_active": {
+        "name": "Активный вызов",
+        "state": {
+          "off": "Нет вызова",
+          "on": "Входящий вызов"
+        },
+        "state_attributes": {
+          "id": {
+            "name": "Идентификатор вызова"
+          },
+          "property_id": {
+            "name": "Идентификатор владения"
+          },
+          "property_name": {
+            "name": "Наименование владения"
+          },
+          "intercom_id": {
+            "name": "Идентификатор домофона"
+          },
+          "intercom_name": {
+            "name": "Наименование домофона"
+          },
+          "snapshot_url": {
+            "name": "Ссылка на снимок"
+          }
+        }
+      }
+    }
+  },
+  "title": "ПИК Домофон"
 }

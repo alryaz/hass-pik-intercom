@@ -11,6 +11,7 @@ from typing import (
     ClassVar,
 )
 
+from homeassistant.const import ATTR_ID, ATTR_LOCATION, ATTR_DEVICE_ID
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import (
@@ -134,6 +135,8 @@ class BasePikIntercomEntity(
 ):
     UNIQUE_ID_FORMAT: ClassVar[Optional[str]] = None
 
+    _attr_has_entity_name = True
+
     def __init__(self, *args, device: _TBaseObject, **kwargs) -> None:
         self._internal_object: _TBaseObject = device
         super().__init__(*args, **kwargs)
@@ -150,14 +153,13 @@ class BasePikIntercomEntity(
         """Update the state and attributes."""
         self._attr_extra_state_attributes = {}
         if (device := self._internal_object) is not None:
-            self._attr_extra_state_attributes["id"] = device.id
+            self._attr_extra_state_attributes[ATTR_ID] = device.id
             if hasattr(device, "geo_unit_short_name"):
-                self._attr_extra_state_attributes["geo_unit"] = device.geo_unit_short_name
+                self._attr_extra_state_attributes[ATTR_LOCATION] = device.geo_unit_short_name
 
-        self._attr_name = self._common_device_name
         self._attr_device_info = DeviceInfo(
-            name=self._attr_name,
-            identifiers={(DOMAIN, self._common_device_identifier)},
+            name=self._common_device_name,
+            identifiers={(DOMAIN, (device_identifier := self._common_device_identifier))},
             manufacturer=MANUFACTURER,
             # suggested_area=getattr(self._internal_object, "geo_unit_short_name", None),
         )
@@ -233,11 +235,6 @@ class BasePikIntercomIotIntercomEntity(BasePikIntercomEntity[PikIntercomIotInter
         super()._update_attr()
         self._attr_available = self._internal_object in self.api_object.iot_intercoms.values()
 
-    @property
-    def base_name(self) -> str:
-        iot_intercom = self._internal_object
-        return iot_intercom.name or f"IoT Intercom {iot_intercom.id}"
-
 
 class BasePikIntercomIotRelayEntity(BasePikIntercomEntity[PikIntercomIotIntercomsUpdateCoordinator, PikIotRelay]):
     UNIQUE_ID_FORMAT = "iot_relay__{}"
@@ -263,8 +260,7 @@ class BasePikIntercomIotRelayEntity(BasePikIntercomEntity[PikIntercomIotIntercom
     @callback
     def _update_attr(self) -> None:
         super()._update_attr()
-        device = self._internal_object
-        self._attr_available = device.id in self.api_object.iot_relays
+        self._attr_available = (device := self._internal_object) in self.api_object.iot_relays.values()
         self._attr_extra_state_attributes.update(
             {
                 "original_name": device.name,
@@ -288,10 +284,8 @@ class BasePikIntercomIotMeterEntity(BasePikIntercomEntity[PikIntercomIotIntercom
 
     @callback
     def _update_attr(self) -> None:
-        _LOGGER.debug(f"BASE_IOT_METER _UPDATE_ATTR {super()._update_attr}")
         super()._update_attr()
-        device = self._internal_object
-        self._attr_available = device in self.api_object.iot_meters.values()
+        self._attr_available = (device := self._internal_object) in self.api_object.iot_meters.values()
         self._attr_extra_state_attributes.update(
             {
                 "serial": device.serial,
@@ -324,7 +318,9 @@ class BasePikIntercomLastCallSessionEntity(
 
     @property
     def _common_device_identifier(self) -> str:
-        return f"last_call_session__{self.coordinator.config_entry.entry_id}"
+        return BasePikIntercomLastCallSessionEntity.UNIQUE_ID_FORMAT.format(
+            self.coordinator.config_entry.entry_id,
+        )
 
     @property
     def _common_device_name(self) -> str:

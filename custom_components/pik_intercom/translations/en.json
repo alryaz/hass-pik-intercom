@@ -1,9 +1,9 @@
 {
     "config": {
         "error": {
+            "already_configured": "Account already configured!",
             "authentication_error": "Authentication error! This might be due to bad credentials or server connectivity issues\"",
-            "api_load_error": "API loading error. Please, report this to the developer as soon as possible!",
-            "empty_account": "Account does not have any properties available"
+            "api_load_error": "API loading error. Please, report this to the developer as soon as possible!"
         },
         "step": {
             "user": {
@@ -38,5 +38,54 @@
             }
         }
     },
+  "entity": {
+    "button": {
+      "unlocker": {
+        "name": "Unlocker",
+        "state_attributes": {
+          "id": {
+            "name": "Object identifier"
+          },
+          "target_relay_ids": {
+            "name": "Relays to unlock"
+          },
+          "original_name": {
+            "name": "Original name"
+          },
+          "custom_name": {
+            "name": "Custom name"
+          },
+          "is_favorite": {
+            "name": "Favorite"
+          },
+          "is_hidden": {
+            "name": "Hidden"
+          },
+          "location": {
+            "name": "Geographical location"
+          }
+        }
+      }
+    },
+    "sensor": {
+      "meter": {
+        "name": "Meter",
+        "state_attributes": {
+          "id": {
+            "name": "Object identifier"
+          },
+          "kind": {
+            "name": "Device type"
+          },
+          "pipe_identifier": {
+            "name": "Pipe identifier"
+          },
+          "location": {
+            "name": "Geographical location"
+          }
+        }
+      }
+    }
+  },
     "title": "PIK Intercom"
 }

@@ -100,6 +100,8 @@ class _BaseUnlockerButton(BasePikIntercomEntity, ButtonEntity, ABC):
 
     _attr_icon = "mdi:door-closed-lock"
     _internal_object: PikObjectWithUnlocker
+    _attr_name = "Unlocker"
+    _attr_translation_key = "unlocker"
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -110,10 +112,6 @@ class _BaseUnlockerButton(BasePikIntercomEntity, ButtonEntity, ABC):
             self.async_press(),
             self.hass.loop,
         ).result()
-
-    def _update_attr(self) -> None:
-        super()._update_attr()
-        self._attr_name += " Unlocker"
 
     async def async_press(self) -> None:
         await self._internal_object.async_unlock()
@@ -138,3 +136,5 @@ class PikIntercomCallSessionUnlockerButton(BasePikIntercomLastCallSessionEntity,
 
     def _update_attr(self) -> None:
         super()._update_attr()
+        if call_session := self._internal_object:
+            self._attr_extra_state_attributes["target_relay_ids"] = [relay.id for relay in call_session.target_relays]
