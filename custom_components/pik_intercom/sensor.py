@@ -96,10 +96,19 @@ async def async_setup_entry(
 
 class _BasePikIntercomMeterSensor(BasePikIntercomIotMeterEntity, SensorEntity):
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
-    _attr_device_class = SensorDeviceClass.VOLUME
-    _attr_native_unit_of_measurement = UnitOfVolume.CUBIC_METERS
     _attr_suggested_display_precision = 3
     _attr_translation_key = "meter"
+
+    def _update_attr(self) -> None:
+        super()._update_attr()
+        if self._internal_object.kind in ("cold", "hot"):
+            self._attr_device_class = SensorDeviceClass.WATER
+            self._attr_native_unit_of_measurement = UnitOfVolume.CUBIC_METERS
+        else:
+            _LOGGER.warning(
+                f"[{self}] New meter kind: '{self._internal_object.kind}. "
+                f"Please, report this to the developer ASAP!"
+            )
 
 
 class PikIntercomMeterTotalSensor(_BasePikIntercomMeterSensor):
