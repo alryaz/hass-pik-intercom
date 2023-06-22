@@ -11,14 +11,13 @@ from typing import (
     ClassVar,
 )
 
-from homeassistant.const import ATTR_ID, ATTR_LOCATION, ATTR_DEVICE_ID
+from homeassistant.const import ATTR_ID, ATTR_LOCATION
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
     UpdateFailed,
-    CoordinatorEntity,
-)
+    CoordinatorEntity, )
 
 from custom_components.pik_intercom.api import (
     PikIntercomAPI,
@@ -49,9 +48,11 @@ class BasePikIntercomUpdateCoordinator(DataUpdateCoordinator[_T], ABC, Generic[_
         *,
         api_object: "PikIntercomAPI",
         update_interval: Optional[timedelta] = None,
+        retries: int = 3,
     ) -> None:
         """Initialize Pik Intercom personal intercoms data updater."""
         self.api_object = api_object
+        self.update_retries = retries
 
         super().__init__(
             hass,
@@ -66,13 +67,18 @@ class BasePikIntercomUpdateCoordinator(DataUpdateCoordinator[_T], ABC, Generic[_
 
     async def _async_update_data(self) -> _T:
         """Fetch data."""
-        try:
-            return await self._async_update_internal()
-        except asyncio.CancelledError:
-            raise
-        except BaseException as exc:
-            msg = f"Unable to fetch data: {exc}"
-            raise UpdateFailed(msg) from exc
+        for i in range(self.update_retries):
+            try:
+                return await self._async_update_internal()
+            except asyncio.CancelledError:
+                raise
+            except BaseException as exc:
+                if (i + 1) == self.update_retries:
+                    msg = f"Unable to fetch data: {exc}"
+                    raise UpdateFailed(msg) from exc
+                else:
+                    # Sleep for two seconds between requests
+                    await asyncio.sleep(2)
 
 
 class PikIntercomLastCallSessionUpdateCoordinator(BasePikIntercomUpdateCoordinator[PikActiveCallSession]):
