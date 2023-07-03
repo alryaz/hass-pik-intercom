@@ -16,7 +16,6 @@ from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
     OptionsFlow,
-    CONN_CLASS_CLOUD_POLL,
 )
 from homeassistant.const import (
     CONF_DEVICE_ID,
@@ -29,8 +28,8 @@ from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .api import PikIntercomAPI, PikIntercomException
-from .const import (
+from custom_components.pik_intercom.api import PikIntercomAPI, PikIntercomException
+from custom_components.pik_intercom.const import (
     CONF_AUTH_UPDATE_INTERVAL,
     CONF_INTERCOMS_UPDATE_INTERVAL,
     CONF_LAST_CALL_SESSION_UPDATE_INTERVAL,
@@ -41,9 +40,10 @@ from .const import (
     MIN_AUTH_UPDATE_INTERVAL,
     MIN_DEVICE_ID_LENGTH,
     MIN_INTERCOMS_UPDATE_INTERVAL,
-    MIN_LAST_CALL_SESSION_UPDATE_INTERVAL,
+    MIN_LAST_CALL_SESSION_UPDATE_INTERVAL, CONF_IOT_UPDATE_INTERVAL, DEFAULT_METERS_UPDATE_INTERVAL,
+    MIN_IOT_UPDATE_INTERVAL,
 )
-from .helpers import phone_validator
+from custom_components.pik_intercom.helpers import phone_validator
 
 _LOGGER: Final = logging.getLogger(__name__)
 
@@ -63,14 +63,14 @@ _INTERVALS_WITH_DEFAULTS = {
         DEFAULT_LAST_CALL_SESSION_UPDATE_INTERVAL,
         MIN_LAST_CALL_SESSION_UPDATE_INTERVAL,
     ),
+    CONF_IOT_UPDATE_INTERVAL: (DEFAULT_METERS_UPDATE_INTERVAL, MIN_IOT_UPDATE_INTERVAL),
 }
 
 
 class PikIntercomConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Inter RAO config entries."""
 
-    VERSION = 5
-    CONNECTION_CLASS = CONN_CLASS_CLOUD_POLL
+    VERSION: Final = 6
 
     async def async_submit_entry(self, user_input: Mapping[str, Any]) -> FlowResult:
         username = user_input[CONF_USERNAME]
@@ -197,7 +197,7 @@ class PikIntercomOptionsFlow(OptionsFlow):
             normalized_configuration[CONF_DEVICE_ID] = device_id
 
             for interval_key, (_, min_interval) in _INTERVALS_WITH_DEFAULTS.items():
-                if normalized_configuration[interval_key] < min_interval:
+                if normalized_configuration[interval_key] < min_interval and normalized_configuration[interval_key] != 0:
                     errors[interval_key] = interval_key + "_too_low"
                     description_placeholders["min_" + interval_key] = str(timedelta(seconds=min_interval))
 

@@ -463,7 +463,7 @@ class PikIntercomAPI:
 
         _LOGGER.debug(f"[{request_counter}] Properties fetching successful {resp_data}")
 
-    async def async_update_property_intercoms(self, property_id: int) -> None:
+    async def async_update_property_intercoms(self, property_id: int, clean_obsolete: bool = False) -> None:
         sub_url = f"/api/customers/properties/{property_id}/intercoms"
         page_number = 0
 
@@ -525,7 +525,12 @@ class PikIntercomAPI:
 
             _LOGGER.debug(f"[{request_counter}] Property intercoms fetching successful")
 
-    async def async_update_iot_intercoms(self) -> None:
+        if clean_obsolete:
+            # Clean up obsolete data
+            for key in intercoms.keys() - found_intercoms:
+                del intercoms[key]
+
+    async def async_update_iot_intercoms(self, clean_obsolete: bool = False) -> None:
         sub_url = f"/api/alfred/v1/personal/intercoms"
         page_number = 0
 
@@ -616,13 +621,14 @@ class PikIntercomAPI:
 
             _LOGGER.debug(f"[{request_counter}] Property intercoms fetching successful")
 
-        # Clean up obsolete data
-        for key in intercoms.keys() - found_intercoms:
-            del intercoms[key]
-        for key in relays.keys() - found_relays:
-            del relays[key]
+        if clean_obsolete:
+            # Clean up obsolete data
+            for key in intercoms.keys() - found_intercoms:
+                del intercoms[key]
+            for key in relays.keys() - found_relays:
+                del relays[key]
 
-    async def async_update_iot_cameras(self) -> None:
+    async def async_update_iot_cameras(self, clean_obsolete: bool = False) -> None:
         sub_url = f"/api/alfred/v1/personal/cameras"
         page_number = 0
 
@@ -668,11 +674,12 @@ class PikIntercomAPI:
 
             _LOGGER.debug(f"[{request_counter}] Property intercoms fetching successful")
 
-        # Clean up obsolete data
-        for key in cameras.keys() - found_cameras:
-            del cameras[key]
+        if clean_obsolete:
+            # Clean up obsolete data
+            for key in cameras.keys() - found_cameras:
+                del cameras[key]
 
-    async def async_update_iot_meters(self) -> None:
+    async def async_update_iot_meters(self, clean_obsolete: bool = False) -> None:
         sub_url = f"/api/alfred/v1/personal/meters"
         page_number = 0
 
@@ -728,9 +735,10 @@ class PikIntercomAPI:
 
             _LOGGER.debug(f"[{request_counter}] Property intercoms fetching successful")
 
-        # Clean up obsolete data
-        for key in meters.keys() - found_meters:
-            del meters[key]
+        if clean_obsolete:
+            # Clean up obsolete data
+            for key in meters.keys() - found_meters:
+                del meters[key]
 
     async def async_unlock_property_intercom(self, intercom_id: int, mode: str) -> None:
         """

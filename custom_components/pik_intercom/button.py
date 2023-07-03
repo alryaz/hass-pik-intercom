@@ -48,7 +48,7 @@ def async_process_intercoms_generic(
     new_entities = []
     for item_id, item in objects_dict.items():
         if item_id not in entities:
-            _LOGGER.debug(f"[{entry_id}] Adding unlocker for {item}")
+            _LOGGER.debug(f"[{entry_id}] Adding unlocker for {item.id}")
             current_sensor = entity_cls(coordinator, device=item)
             entities[item_id] = current_sensor
             new_entities.append(current_sensor)

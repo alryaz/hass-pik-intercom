@@ -23,6 +23,7 @@
       "auth_update_interval_too_low": "Интервал слишком мал (минимум: {min_auth_update_interval}с)",
       "intercoms_update_interval_too_low": "Интервал слишком мал (минимум: {min_intercoms_update_interval}с)",
       "last_call_session_update_interval_too_low": "Интервал слишком мал (минимум: {min_last_call_session_update_interval}с)",
+      "iot_update_interval_too_low": "Интервал слишком мал (минимум: {min_@{self.domain}update_interval}с)",
       "device_id_invalid_characters": "Идентификатор устройства может содержать только буквенно-цифровые латинские символы (a-z, A-Z, 0-9)",
       "device_id_too_short": "Минимальная длина идентификатора — {min_device_id_length} символов"
     },
@@ -31,7 +32,8 @@
         "data": {
           "auth_update_interval": "Интервал обновления авторизации",
           "intercoms_update_interval": "Интервал обновления домофонов",
-          "call_sessions_update_interval": "Интервал обновления вызовов",
+          "last_call_session_update_interval": "Интервал обновления данных о последнем вызове",
+          "iot_update_interval": "Интервал обновления IoT-устройств",
           "device_id": "Идентификатор устройства",
           "verify_ssl": "Проверять SSL-сертификаты"
         }
@@ -217,6 +219,5 @@
         }
       }
     }
-  },
-  "title": "ПИК Домофон"
+  }
 }

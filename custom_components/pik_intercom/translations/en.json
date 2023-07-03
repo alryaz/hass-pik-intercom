@@ -1,43 +1,45 @@
 {
-    "config": {
-        "error": {
-            "already_configured": "Account already configured!",
-            "authentication_error": "Authentication error! This might be due to bad credentials or server connectivity issues\"",
-            "api_load_error": "API loading error. Please, report this to the developer as soon as possible!"
-        },
-        "step": {
-            "user": {
-                "data": {
-                    "username": "Username",
-                    "password": "Password",
-                    "device_id": "Device identifier (automatically generated)",
-                    "verify_ssl": "Verify SSL"
-                },
-                "description": "Enter credentials for the PIK Intercom application.",
-                "title": "Authorization"
-            }
-        }
+  "config": {
+    "error": {
+      "already_configured": "Account already configured!",
+      "authentication_error": "Authentication error! This might be due to bad credentials or server connectivity issues\"",
+      "api_load_error": "API loading error. Please, report this to the developer as soon as possible!"
     },
-    "options": {
-        "error": {
-            "auth_update_interval_too_low": "Interval too low (minimum: {min_auth_update_interval}s)",
-            "intercoms_update_interval_too_low": "Interval too low (minimum: {min_intercoms_update_interval}s)",
-            "last_call_session_update_interval_too_low": "Interval too low (minimum: {min_last_call_session_update_interval}s)",
-            "device_id_invalid_characters": "Device identifier may only contain alphanumeric characters (a-z, A-Z, 0-9)",
-            "device_id_too_short": "Minimum device identifier length — {min_device_id_length} symbols"
+    "step": {
+      "user": {
+        "data": {
+          "username": "Username",
+          "password": "Password",
+          "device_id": "Device identifier (automatically generated)",
+          "verify_ssl": "Verify SSL"
         },
-        "step": {
-            "init": {
-                "data": {
-                    "auth_update_interval": "Authentication update interval",
-                    "intercoms_update_interval": "Intercoms update interval",
-                    "call_sessions_update_interval": "Call sessions update interval",
-                    "device_id": "Device identifier",
-                    "verify_ssl": "Verify SSL"
-                }
-            }
-        }
+        "description": "Enter credentials for the PIK Intercom application.",
+        "title": "Authorization"
+      }
+    }
+  },
+  "options": {
+    "error": {
+      "auth_update_interval_too_low": "Interval too low (minimum: {min_auth_update_interval}s)",
+      "intercoms_update_interval_too_low": "Interval too low (minimum: {min_intercoms_update_interval}s)",
+      "last_call_session_update_interval_too_low": "Interval too low (minimum: {min_last_call_session_update_interval}s)",
+      "iot_update_interval_too_low": "Interval too low (minimum: {min_iot_update_interval}s)",
+      "device_id_invalid_characters": "Device identifier may only contain alphanumeric characters (a-z, A-Z, 0-9)",
+      "device_id_too_short": "Minimum device identifier length — {min_device_id_length} symbols"
     },
+    "step": {
+      "init": {
+        "data": {
+          "auth_update_interval": "Authentication update interval",
+          "intercoms_update_interval": "Intercoms update interval",
+          "last_call_session_update_interval": "Last call session update interval",
+          "iot_update_interval": "IoT-devices update interval",
+          "device_id": "Device identifier",
+          "verify_ssl": "Verify SSL"
+        }
+      }
+    }
+  },
   "entity": {
     "button": {
       "unlocker": {
@@ -86,6 +88,5 @@
         }
       }
     }
-  },
-    "title": "PIK Intercom"
+  }
 }

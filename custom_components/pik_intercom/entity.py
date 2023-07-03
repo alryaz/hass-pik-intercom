@@ -84,6 +84,7 @@ class BasePikIntercomUpdateCoordinator(DataUpdateCoordinator[_T], ABC, Generic[_
 class PikIntercomLastCallSessionUpdateCoordinator(BasePikIntercomUpdateCoordinator[PikActiveCallSession]):
     async def _async_update_internal(self) -> Optional[PikActiveCallSession]:
         """Fetch data."""
+        _LOGGER.debug(f"[{self.config_entry.entry_id}] Performing last call session update")
         return await self.api_object.async_get_current_call_session()
 
 
@@ -99,6 +100,7 @@ class PikIntercomPropertyIntercomsUpdateCoordinator(BasePikIntercomUpdateCoordin
 
     async def _async_update_internal(self) -> None:
         """Fetch data."""
+        _LOGGER.debug(f"[{self.config_entry.entry_id}] Performing property intercoms update")
         await self.api_object.async_update_property_intercoms(self.property_id)
 
 
@@ -107,6 +109,7 @@ class PikIntercomIotIntercomsUpdateCoordinator(BasePikIntercomUpdateCoordinator[
 
     async def _async_update_internal(self) -> None:
         """Fetch data."""
+        _LOGGER.debug(f"[{self.config_entry.entry_id}] Performing IoT intercoms update")
         await self.api_object.async_update_iot_intercoms()
 
 
@@ -115,6 +118,7 @@ class PikIntercomIotCamerasUpdateCoordinator(BasePikIntercomUpdateCoordinator[No
 
     async def _async_update_internal(self) -> Any:
         """Fetch data."""
+        _LOGGER.debug(f"[{self.config_entry.entry_id}] Performing IoT cameras update")
         await self.api_object.async_update_iot_cameras()
 
 
@@ -123,6 +127,7 @@ class PikIntercomIotMetersUpdateCoordinator(BasePikIntercomUpdateCoordinator[Non
 
     async def _async_update_internal(self) -> Any:
         """Fetch data."""
+        _LOGGER.debug(f"[{self.config_entry.entry_id}] Performing IoT meters update")
         await self.api_object.async_update_iot_meters()
 
 
@@ -291,7 +296,9 @@ class BasePikIntercomIotMeterEntity(BasePikIntercomEntity[PikIntercomIotIntercom
     @callback
     def _update_attr(self) -> None:
         super()._update_attr()
-        self._attr_available = (device := self._internal_object) in self.api_object.iot_meters.values()
+        device = self._internal_object
+        # self._attr_available = (device := self._internal_object) in self.api_object.iot_meters.values()
+        self._attr_available = True
         self._attr_extra_state_attributes.update(
             {
                 "serial": device.serial,

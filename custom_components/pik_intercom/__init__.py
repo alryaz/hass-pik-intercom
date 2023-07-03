@@ -9,9 +9,9 @@ __all__ = (
 import asyncio
 import logging
 from datetime import timedelta
-from typing import Final, List, Dict
-import voluptuous as vol
+from typing import Final, List
 
+import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, SOURCE_IMPORT
 from homeassistant.const import CONF_DEVICE_ID, CONF_PASSWORD, CONF_USERNAME, CONF_VERIFY_SSL, Platform
 from homeassistant.core import HomeAssistant
@@ -34,11 +34,10 @@ from custom_components.pik_intercom.const import (
     MIN_INTERCOMS_UPDATE_INTERVAL,
     CONF_LAST_CALL_SESSION_UPDATE_INTERVAL,
     DEFAULT_LAST_CALL_SESSION_UPDATE_INTERVAL,
-)
-from custom_components.pik_intercom.helpers import (
-    phone_validator,
-    patch_haffmpeg,
-    mask_username,
+    CONF_IOT_UPDATE_INTERVAL,
+    DEFAULT_METERS_UPDATE_INTERVAL,
+    MIN_LAST_CALL_SESSION_UPDATE_INTERVAL,
+    MIN_IOT_UPDATE_INTERVAL,
 )
 from custom_components.pik_intercom.entity import (
     BasePikIntercomUpdateCoordinator,
@@ -47,6 +46,11 @@ from custom_components.pik_intercom.entity import (
     PikIntercomIotCamerasUpdateCoordinator,
     PikIntercomIotMetersUpdateCoordinator,
     PikIntercomLastCallSessionUpdateCoordinator,
+)
+from custom_components.pik_intercom.helpers import (
+    phone_validator,
+    patch_haffmpeg,
+    mask_username,
 )
 
 _LOGGER: Final = logging.getLogger(__name__)
@@ -148,25 +152,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.error(log_prefix + msg, exc_info=exc)
         raise ConfigEntryNotReady(msg) from exc
 
-    intercoms_update_interval = timedelta(
-        seconds=max(
-            MIN_INTERCOMS_UPDATE_INTERVAL,
-            entry.options[CONF_INTERCOMS_UPDATE_INTERVAL],
-        )
-    )
-
     # Load property device coordinators
+    if (update_interval := entry.options[CONF_INTERCOMS_UPDATE_INTERVAL]) > 0:
+        update_interval = timedelta(seconds=max(MIN_INTERCOMS_UPDATE_INTERVAL, update_interval))
+        _LOGGER.debug(log_prefix + f"Setting up property intercoms updates with interval: {update_interval}")
+    else:
+        update_interval = None
+        _LOGGER.debug(log_prefix + f"Not setting up property intercoms updates")
     entry_update_coordinators: List["BasePikIntercomUpdateCoordinator"] = [
         PikIntercomPropertyIntercomsUpdateCoordinator(
             hass,
             api_object=api_object,
             property_id=property_.id,
-            update_interval=intercoms_update_interval,
+            update_interval=update_interval,
         )
         for property_ in api_object.properties.values()
     ]
 
     # Load IoT device coordinators
+    if (update_interval := entry.options[CONF_IOT_UPDATE_INTERVAL]) > 0:
+        update_interval = timedelta(seconds=max(MIN_IOT_UPDATE_INTERVAL, update_interval))
+        _LOGGER.debug(log_prefix + f"Setting up IoT devices updates with interval: {update_interval}")
+    else:
+        update_interval = None
+        _LOGGER.debug(log_prefix + f"Not setting up IoT devices updates")
     for coordinator_cls in (
         PikIntercomIotCamerasUpdateCoordinator,
         PikIntercomIotMetersUpdateCoordinator,
@@ -176,16 +185,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             coordinator_cls(
                 hass,
                 api_object=api_object,
-                update_interval=intercoms_update_interval,
+                update_interval=update_interval,
             )
         )
 
-    entry_update_coordinators.append(
-        PikIntercomLastCallSessionUpdateCoordinator(
-            hass,
-            api_object=api_object,
-            update_interval=timedelta(milliseconds=2500),
+    # Load call session update coordinator
+    if (update_interval := entry.options[CONF_LAST_CALL_SESSION_UPDATE_INTERVAL]) > 0:
+        update_interval = timedelta(
+            seconds=max(
+                MIN_LAST_CALL_SESSION_UPDATE_INTERVAL,
+                update_interval,
+            )
         )
+        _LOGGER.debug(log_prefix + f"Setting up last call session updates with interval: {update_interval}")
+    else:
+        update_interval = None
+        _LOGGER.debug(log_prefix + f"Not setting up last call session updates")
+    entry_update_coordinators.append(
+        PikIntercomLastCallSessionUpdateCoordinator(hass, api_object=api_object, update_interval=update_interval)
     )
 
     # Perform initial update tasks
@@ -214,11 +231,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         await api_object.async_authenticate()
 
-    hass.data.setdefault(DATA_REAUTHENTICATORS, {})[config_entry_id] = async_track_time_interval(
-        hass,
-        async_reauthenticate,
-        timedelta(seconds=entry.options[CONF_AUTH_UPDATE_INTERVAL]),
-    )
+    if (update_interval := entry.options[CONF_AUTH_UPDATE_INTERVAL]) > 0:
+        update_interval = timedelta(seconds=max(MIN_AUTH_UPDATE_INTERVAL, update_interval))
+        _LOGGER.debug(log_prefix + f"Setting up reauthentication with interval: {update_interval}")
+        hass.data.setdefault(DATA_REAUTHENTICATORS, {})[config_entry_id] = async_track_time_interval(
+            hass,
+            async_reauthenticate,
+            update_interval,
+        )
+    else:
+        _LOGGER.debug(log_prefix + "Will not setup reauthentication")
 
     # Forward entry setup to sensor platform
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -249,6 +271,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     options.setdefault(CONF_INTERCOMS_UPDATE_INTERVAL, DEFAULT_INTERCOMS_UPDATE_INTERVAL)
     options.setdefault(CONF_LAST_CALL_SESSION_UPDATE_INTERVAL, DEFAULT_LAST_CALL_SESSION_UPDATE_INTERVAL)
     options.setdefault(CONF_AUTH_UPDATE_INTERVAL, DEFAULT_AUTH_UPDATE_INTERVAL)
+    options.setdefault(CONF_IOT_UPDATE_INTERVAL, DEFAULT_METERS_UPDATE_INTERVAL)
     options.setdefault(CONF_VERIFY_SSL, True)
 
     # Remove obsolete data
