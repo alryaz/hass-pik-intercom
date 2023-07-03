@@ -17,7 +17,8 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
     UpdateFailed,
-    CoordinatorEntity, )
+    CoordinatorEntity,
+)
 
 from custom_components.pik_intercom.api import (
     PikIntercomAPI,
@@ -81,14 +82,20 @@ class BasePikIntercomUpdateCoordinator(DataUpdateCoordinator[_T], ABC, Generic[_
                     await asyncio.sleep(2)
 
 
-class PikIntercomLastCallSessionUpdateCoordinator(BasePikIntercomUpdateCoordinator[PikActiveCallSession]):
+class PikIntercomLastCallSessionUpdateCoordinator(
+    BasePikIntercomUpdateCoordinator[PikActiveCallSession]
+):
     async def _async_update_internal(self) -> Optional[PikActiveCallSession]:
         """Fetch data."""
-        _LOGGER.debug(f"[{self.config_entry.entry_id}] Performing last call session update")
+        _LOGGER.debug(
+            f"[{self.config_entry.entry_id}] Performing last call session update"
+        )
         return await self.api_object.async_get_current_call_session()
 
 
-class PikIntercomPropertyIntercomsUpdateCoordinator(BasePikIntercomUpdateCoordinator[None]):
+class PikIntercomPropertyIntercomsUpdateCoordinator(
+    BasePikIntercomUpdateCoordinator[None]
+):
     def __init__(
         self,
         *args,
@@ -100,7 +107,9 @@ class PikIntercomPropertyIntercomsUpdateCoordinator(BasePikIntercomUpdateCoordin
 
     async def _async_update_internal(self) -> None:
         """Fetch data."""
-        _LOGGER.debug(f"[{self.config_entry.entry_id}] Performing property intercoms update")
+        _LOGGER.debug(
+            f"[{self.config_entry.entry_id}] Performing property intercoms update"
+        )
         await self.api_object.async_update_property_intercoms(self.property_id)
 
 
@@ -157,7 +166,9 @@ class BasePikIntercomEntity(
     @callback
     def _update_unique_id(self) -> None:
         if self.UNIQUE_ID_FORMAT:
-            self._attr_unique_id = self.UNIQUE_ID_FORMAT.format(self._internal_object.id)
+            self._attr_unique_id = self.UNIQUE_ID_FORMAT.format(
+                self._internal_object.id
+            )
 
     @callback
     def _update_attr(self) -> None:
@@ -166,11 +177,15 @@ class BasePikIntercomEntity(
         if (device := self._internal_object) is not None:
             self._attr_extra_state_attributes[ATTR_ID] = device.id
             if hasattr(device, "geo_unit_short_name"):
-                self._attr_extra_state_attributes[ATTR_LOCATION] = device.geo_unit_short_name
+                self._attr_extra_state_attributes[
+                    ATTR_LOCATION
+                ] = device.geo_unit_short_name
 
         self._attr_device_info = DeviceInfo(
             name=self._common_device_name,
-            identifiers={(DOMAIN, (device_identifier := self._common_device_identifier))},
+            identifiers={
+                (DOMAIN, (device_identifier := self._common_device_identifier))
+            },
             manufacturer=MANUFACTURER,
             # suggested_area=getattr(self._internal_object, "geo_unit_short_name", None),
         )
@@ -202,7 +217,9 @@ class BasePikIntercomEntity(
 
 
 class BasePikIntercomPropertyDeviceEntity(
-    BasePikIntercomEntity[PikIntercomPropertyIntercomsUpdateCoordinator, PikPropertyDevice]
+    BasePikIntercomEntity[
+        PikIntercomPropertyIntercomsUpdateCoordinator, PikPropertyDevice
+    ]
 ):
     UNIQUE_ID_FORMAT = "property_intercom__{}"
 
@@ -231,7 +248,9 @@ class BasePikIntercomPropertyDeviceEntity(
         )
 
 
-class BasePikIntercomIotIntercomEntity(BasePikIntercomEntity[PikIntercomIotIntercomsUpdateCoordinator, PikIotIntercom]):
+class BasePikIntercomIotIntercomEntity(
+    BasePikIntercomEntity[PikIntercomIotIntercomsUpdateCoordinator, PikIotIntercom]
+):
     UNIQUE_ID_FORMAT = "iot_intercom__{}"
 
     @property
@@ -244,10 +263,14 @@ class BasePikIntercomIotIntercomEntity(BasePikIntercomEntity[PikIntercomIotInter
 
     def _update_attr(self) -> None:
         super()._update_attr()
-        self._attr_available = self._internal_object in self.api_object.iot_intercoms.values()
+        self._attr_available = (
+            self._internal_object in self.api_object.iot_intercoms.values()
+        )
 
 
-class BasePikIntercomIotRelayEntity(BasePikIntercomEntity[PikIntercomIotIntercomsUpdateCoordinator, PikIotRelay]):
+class BasePikIntercomIotRelayEntity(
+    BasePikIntercomEntity[PikIntercomIotIntercomsUpdateCoordinator, PikIotRelay]
+):
     UNIQUE_ID_FORMAT = "iot_relay__{}"
 
     @property
@@ -271,7 +294,9 @@ class BasePikIntercomIotRelayEntity(BasePikIntercomEntity[PikIntercomIotIntercom
     @callback
     def _update_attr(self) -> None:
         super()._update_attr()
-        self._attr_available = (device := self._internal_object) in self.api_object.iot_relays.values()
+        self._attr_available = (
+            device := self._internal_object
+        ) in self.api_object.iot_relays.values()
         self._attr_extra_state_attributes.update(
             {
                 "original_name": device.name,
@@ -282,7 +307,9 @@ class BasePikIntercomIotRelayEntity(BasePikIntercomEntity[PikIntercomIotIntercom
         )
 
 
-class BasePikIntercomIotMeterEntity(BasePikIntercomEntity[PikIntercomIotIntercomsUpdateCoordinator, PikIotMeter]):
+class BasePikIntercomIotMeterEntity(
+    BasePikIntercomEntity[PikIntercomIotIntercomsUpdateCoordinator, PikIotMeter]
+):
     UNIQUE_ID_FORMAT = "iot_meter__{}"
 
     @property
@@ -308,7 +335,9 @@ class BasePikIntercomIotMeterEntity(BasePikIntercomEntity[PikIntercomIotIntercom
         )
 
 
-class BasePikIntercomIotCameraEntity(BasePikIntercomEntity[PikIntercomIotCamerasUpdateCoordinator, PikIotCamera]):
+class BasePikIntercomIotCameraEntity(
+    BasePikIntercomEntity[PikIntercomIotCamerasUpdateCoordinator, PikIotCamera]
+):
     UNIQUE_ID_FORMAT = "iot_camera__{}"
 
     @property
@@ -321,11 +350,15 @@ class BasePikIntercomIotCameraEntity(BasePikIntercomEntity[PikIntercomIotCameras
 
     def _update_attr(self) -> None:
         super()._update_attr()
-        self._attr_available = self._internal_object in self.api_object.iot_cameras.values()
+        self._attr_available = (
+            self._internal_object in self.api_object.iot_cameras.values()
+        )
 
 
 class BasePikIntercomLastCallSessionEntity(
-    BasePikIntercomEntity[PikIntercomLastCallSessionUpdateCoordinator, Optional[PikActiveCallSession]]
+    BasePikIntercomEntity[
+        PikIntercomLastCallSessionUpdateCoordinator, Optional[PikActiveCallSession]
+    ]
 ):
     UNIQUE_ID_FORMAT = "last_call_session__{}"
 
@@ -341,7 +374,9 @@ class BasePikIntercomLastCallSessionEntity(
 
     @callback
     def _update_unique_id(self) -> None:
-        self._attr_unique_id = self.UNIQUE_ID_FORMAT.format(self.coordinator.config_entry.entry_id)
+        self._attr_unique_id = self.UNIQUE_ID_FORMAT.format(
+            self.coordinator.config_entry.entry_id
+        )
 
     @callback
     def _update_attr(self) -> None:

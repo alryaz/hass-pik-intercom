@@ -40,7 +40,9 @@ from custom_components.pik_intercom.const import (
     MIN_AUTH_UPDATE_INTERVAL,
     MIN_DEVICE_ID_LENGTH,
     MIN_INTERCOMS_UPDATE_INTERVAL,
-    MIN_LAST_CALL_SESSION_UPDATE_INTERVAL, CONF_IOT_UPDATE_INTERVAL, DEFAULT_METERS_UPDATE_INTERVAL,
+    MIN_LAST_CALL_SESSION_UPDATE_INTERVAL,
+    CONF_IOT_UPDATE_INTERVAL,
+    DEFAULT_METERS_UPDATE_INTERVAL,
     MIN_IOT_UPDATE_INTERVAL,
 )
 from custom_components.pik_intercom.helpers import phone_validator
@@ -57,7 +59,10 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 )
 
 _INTERVALS_WITH_DEFAULTS = {
-    CONF_INTERCOMS_UPDATE_INTERVAL: (DEFAULT_INTERCOMS_UPDATE_INTERVAL, MIN_INTERCOMS_UPDATE_INTERVAL),
+    CONF_INTERCOMS_UPDATE_INTERVAL: (
+        DEFAULT_INTERCOMS_UPDATE_INTERVAL,
+        MIN_INTERCOMS_UPDATE_INTERVAL,
+    ),
     CONF_AUTH_UPDATE_INTERVAL: (DEFAULT_AUTH_UPDATE_INTERVAL, MIN_AUTH_UPDATE_INTERVAL),
     CONF_LAST_CALL_SESSION_UPDATE_INTERVAL: (
         DEFAULT_LAST_CALL_SESSION_UPDATE_INTERVAL,
@@ -98,14 +103,18 @@ class PikIntercomConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
     # Initial step for user interaction
-    async def async_step_user(self, user_input: Optional[Dict[str, Any]] = None) -> FlowResult:
+    async def async_step_user(
+        self, user_input: Optional[Dict[str, Any]] = None
+    ) -> FlowResult:
         """Handle a flow start."""
         if not user_input:
             return self.async_show_form(
                 step_id="user",
                 data_schema=self.add_suggested_values_to_schema(
                     STEP_USER_DATA_SCHEMA,
-                    suggested_values={CONF_DEVICE_ID: b2a_hex(urandom(15)).decode("ascii")},
+                    suggested_values={
+                        CONF_DEVICE_ID: b2a_hex(urandom(15)).decode("ascii")
+                    },
                 ),
             )
 
@@ -145,14 +154,22 @@ class PikIntercomConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="user",
-            data_schema=self.add_suggested_values_to_schema(STEP_USER_DATA_SCHEMA, suggested_values=user_input),
+            data_schema=self.add_suggested_values_to_schema(
+                STEP_USER_DATA_SCHEMA, suggested_values=user_input
+            ),
             errors=errors,
             description_placeholders=description_placeholders,
         )
 
-    async def async_step_import(self, user_input: Optional[Dict[str, Any]] = None) -> FlowResult:
+    async def async_step_import(
+        self, user_input: Optional[Dict[str, Any]] = None
+    ) -> FlowResult:
         """Import configuration entries from YAML"""
-        return (await self.async_submit_entry(user_input)) if user_input else self.async_abort(reason="unknown_error")
+        return (
+            (await self.async_submit_entry(user_input))
+            if user_input
+            else self.async_abort(reason="unknown_error")
+        )
 
     async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> FlowResult:
         # @TODO
@@ -166,7 +183,10 @@ class PikIntercomConfigFlow(ConfigFlow, domain=DOMAIN):
 
 STEP_INIT_DATA_SCHEMA = vol.Schema(
     {
-        **{vol.Required(key): cv.positive_time_period_dict for key in _INTERVALS_WITH_DEFAULTS},
+        **{
+            vol.Required(key): cv.positive_time_period_dict
+            for key in _INTERVALS_WITH_DEFAULTS
+        },
         vol.Required(CONF_DEVICE_ID): cv.string,
         vol.Optional(CONF_VERIFY_SSL, default=True): cv.boolean,
     }
@@ -177,7 +197,9 @@ class PikIntercomOptionsFlow(OptionsFlow):
     def __init__(self, config_entry: ConfigEntry) -> None:
         self._config_entry = config_entry
 
-    async def async_step_init(self, user_input: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    async def async_step_init(
+        self, user_input: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         options = self._config_entry.options
         errors = {}
         description_placeholders = {}
@@ -197,9 +219,14 @@ class PikIntercomOptionsFlow(OptionsFlow):
             normalized_configuration[CONF_DEVICE_ID] = device_id
 
             for interval_key, (_, min_interval) in _INTERVALS_WITH_DEFAULTS.items():
-                if normalized_configuration[interval_key] < min_interval and normalized_configuration[interval_key] != 0:
+                if (
+                    normalized_configuration[interval_key] < min_interval
+                    and normalized_configuration[interval_key] != 0
+                ):
                     errors[interval_key] = interval_key + "_too_low"
-                    description_placeholders["min_" + interval_key] = str(timedelta(seconds=min_interval))
+                    description_placeholders["min_" + interval_key] = str(
+                        timedelta(seconds=min_interval)
+                    )
 
             if not errors:
                 _LOGGER.debug(f"Saving options: {normalized_configuration}")
@@ -217,7 +244,9 @@ class PikIntercomOptionsFlow(OptionsFlow):
 
         return self.async_show_form(
             step_id="init",
-            data_schema=self.add_suggested_values_to_schema(STEP_INIT_DATA_SCHEMA, normalized_configuration),
+            data_schema=self.add_suggested_values_to_schema(
+                STEP_INIT_DATA_SCHEMA, normalized_configuration
+            ),
             errors=errors,
             description_placeholders=description_placeholders,
         )

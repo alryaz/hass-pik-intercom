@@ -41,7 +41,9 @@ def async_process_intercoms_generic(
 ) -> None:
     entry_id = coordinator.config_entry.entry_id
     try:
-        entities: Dict[int, "_BaseUnlockerButton"] = getattr(coordinator, "unlocker_button_entities")
+        entities: Dict[int, "_BaseUnlockerButton"] = getattr(
+            coordinator, "unlocker_button_entities"
+        )
     except AttributeError:
         setattr(coordinator, "unlocker_button_entities", entities := {})
 
@@ -75,11 +77,19 @@ async def async_setup_entry(
             objects_dict = coordinator.api_object.devices
         else:
             if isinstance(coordinator, PikIntercomLastCallSessionUpdateCoordinator):
-                async_add_entities([PikIntercomCallSessionUnlockerButton(coordinator, device=coordinator.data)])
+                async_add_entities(
+                    [
+                        PikIntercomCallSessionUnlockerButton(
+                            coordinator, device=coordinator.data
+                        )
+                    ]
+                )
             continue
 
         # Run first time
-        async_process_intercoms_generic(entity_cls, objects_dict, coordinator, async_add_entities)
+        async_process_intercoms_generic(
+            entity_cls, objects_dict, coordinator, async_add_entities
+        )
 
         # Add listener for future updates
         coordinator.async_add_listener(
@@ -117,24 +127,36 @@ class _BaseUnlockerButton(BasePikIntercomEntity, ButtonEntity, ABC):
         await self._internal_object.async_unlock()
 
 
-class PikIntercomPropertyPropertyDeviceUnlockerButton(BasePikIntercomPropertyDeviceEntity, _BaseUnlockerButton):
+class PikIntercomPropertyPropertyDeviceUnlockerButton(
+    BasePikIntercomPropertyDeviceEntity, _BaseUnlockerButton
+):
     """Property Intercom Unlocker Adapter"""
 
-    UNIQUE_ID_FORMAT = f"{BasePikIntercomPropertyDeviceEntity.UNIQUE_ID_FORMAT}__unlocker"
+    UNIQUE_ID_FORMAT = (
+        f"{BasePikIntercomPropertyDeviceEntity.UNIQUE_ID_FORMAT}__unlocker"
+    )
 
 
-class PikIntercomIotRelayUnlockerButton(BasePikIntercomIotRelayEntity, _BaseUnlockerButton):
+class PikIntercomIotRelayUnlockerButton(
+    BasePikIntercomIotRelayEntity, _BaseUnlockerButton
+):
     """IoT Relay Unlocker Adapter"""
 
     UNIQUE_ID_FORMAT = f"{BasePikIntercomIotRelayEntity.UNIQUE_ID_FORMAT}__unlocker"
 
 
-class PikIntercomCallSessionUnlockerButton(BasePikIntercomLastCallSessionEntity, _BaseUnlockerButton):
+class PikIntercomCallSessionUnlockerButton(
+    BasePikIntercomLastCallSessionEntity, _BaseUnlockerButton
+):
     """Last call session unlock delegator."""
 
-    UNIQUE_ID_FORMAT = f"{BasePikIntercomLastCallSessionEntity.UNIQUE_ID_FORMAT}__unlocker"
+    UNIQUE_ID_FORMAT = (
+        f"{BasePikIntercomLastCallSessionEntity.UNIQUE_ID_FORMAT}__unlocker"
+    )
 
     def _update_attr(self) -> None:
         super()._update_attr()
         if call_session := self._internal_object:
-            self._attr_extra_state_attributes["target_relay_ids"] = [relay.id for relay in call_session.target_relays]
+            self._attr_extra_state_attributes["target_relay_ids"] = [
+                relay.id for relay in call_session.target_relays
+            ]

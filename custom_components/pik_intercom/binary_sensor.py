@@ -1,4 +1,7 @@
-from homeassistant.components.binary_sensor import BinarySensorEntity, BinarySensorDeviceClass
+from homeassistant.components.binary_sensor import (
+    BinarySensorEntity,
+    BinarySensorDeviceClass,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -20,12 +23,16 @@ async def async_setup_entry(
     for coordinator in hass.data[DOMAIN][entry.entry_id]:
         # Add update listeners to meter entity
         if isinstance(coordinator, PikIntercomLastCallSessionUpdateCoordinator):
-            async_add_entities([PikIntercomLastCallSessionSensor(coordinator, device=coordinator.data)])
+            async_add_entities(
+                [PikIntercomLastCallSessionSensor(coordinator, device=coordinator.data)]
+            )
 
     return True
 
 
-class PikIntercomLastCallSessionSensor(BasePikIntercomLastCallSessionEntity, BinarySensorEntity):
+class PikIntercomLastCallSessionSensor(
+    BasePikIntercomLastCallSessionEntity, BinarySensorEntity
+):
     # _attr_icon = "mdi:phone"
     _attr_device_class = BinarySensorDeviceClass.SOUND
     _attr_name = "Active"

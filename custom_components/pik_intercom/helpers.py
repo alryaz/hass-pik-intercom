@@ -28,7 +28,9 @@ def phone_validator(phone_number: str) -> str:
         else:
             raise vol.Invalid("Unknown phone number format detected")
     else:
-        raise vol.Invalid(f"Irregular phone number length (expected 11, got {len(phone_number)})")
+        raise vol.Invalid(
+            f"Irregular phone number length (expected 11, got {len(phone_number)})"
+        )
 
 
 def patch_haffmpeg():

@@ -1,6 +1,10 @@
 """Pik Intercom sensors."""
 
-__all__ = ("async_setup_entry", "PikIntercomMeterTotalSensor", "PikIntercomMeterMonthSensor")
+__all__ = (
+    "async_setup_entry",
+    "PikIntercomMeterTotalSensor",
+    "PikIntercomMeterMonthSensor",
+)
 
 import logging
 from abc import ABC, abstractmethod
@@ -33,24 +37,32 @@ def _async_add_new_meter_entities(
 ) -> None:
     entry_id = coordinator.config_entry.entry_id
     try:
-        entities_current: Dict[int, PikIntercomMeterMonthSensor] = getattr(coordinator, "entities_current")
+        entities_current: Dict[int, PikIntercomMeterMonthSensor] = getattr(
+            coordinator, "entities_current"
+        )
     except AttributeError:
         setattr(coordinator, "entities_current", entities_current := {})
 
     try:
-        entities_month: Dict[int, PikIntercomMeterTotalSensor] = getattr(coordinator, "entities_month")
+        entities_month: Dict[int, PikIntercomMeterTotalSensor] = getattr(
+            coordinator, "entities_month"
+        )
     except AttributeError:
         setattr(coordinator, "entities_month", entities_month := {})
 
     new_entities = []
     for meter_id, meter in coordinator.api_object.iot_meters.items():
         if meter_id not in entities_current:
-            _LOGGER.debug(f"[{entry_id}] Adding current meter value sensor for {meter.id}")
+            _LOGGER.debug(
+                f"[{entry_id}] Adding current meter value sensor for {meter.id}"
+            )
             current_sensor = PikIntercomMeterMonthSensor(coordinator, device=meter)
             entities_current[meter_id] = current_sensor
             new_entities.append(current_sensor)
         if meter_id not in entities_month:
-            _LOGGER.debug(f"[{entry_id}] Adding month meter value sensor for {meter.id}")
+            _LOGGER.debug(
+                f"[{entry_id}] Adding month meter value sensor for {meter.id}"
+            )
             month_sensor = PikIntercomMeterTotalSensor(coordinator, device=meter)
             entities_month[meter_id] = month_sensor
             new_entities.append(month_sensor)
@@ -133,7 +145,9 @@ class PikIntercomMeterMonthSensor(_BasePikIntercomMeterSensor):
         self._attr_native_value = self._internal_object.month_value_numeric
 
 
-class _BasePikIntercomLastCallSessionTimestampSensor(BasePikIntercomLastCallSessionEntity, SensorEntity, ABC):
+class _BasePikIntercomLastCallSessionTimestampSensor(
+    BasePikIntercomLastCallSessionEntity, SensorEntity, ABC
+):
     _attr_device_class = SensorDeviceClass.TIMESTAMP
     _attr_translation_key = "timestamp"
 
@@ -152,8 +166,12 @@ class _BasePikIntercomLastCallSessionTimestampSensor(BasePikIntercomLastCallSess
         raise NotImplementedError
 
 
-class PikIntercomLastCallSessionCreatedAtSensor(_BasePikIntercomLastCallSessionTimestampSensor):
-    UNIQUE_ID_FORMAT = f"{_BasePikIntercomLastCallSessionTimestampSensor.UNIQUE_ID_FORMAT}__created_at"
+class PikIntercomLastCallSessionCreatedAtSensor(
+    _BasePikIntercomLastCallSessionTimestampSensor
+):
+    UNIQUE_ID_FORMAT = (
+        f"{_BasePikIntercomLastCallSessionTimestampSensor.UNIQUE_ID_FORMAT}__created_at"
+    )
 
     _attr_name = "Created At"
     _attr_translation_key = "created_at"
@@ -163,7 +181,9 @@ class PikIntercomLastCallSessionCreatedAtSensor(_BasePikIntercomLastCallSessionT
         return self._internal_object.created_at
 
 
-class PikIntercomLastCallSessionPickedUpAtSensor(_BasePikIntercomLastCallSessionTimestampSensor):
+class PikIntercomLastCallSessionPickedUpAtSensor(
+    _BasePikIntercomLastCallSessionTimestampSensor
+):
     UNIQUE_ID_FORMAT = f"{_BasePikIntercomLastCallSessionTimestampSensor.UNIQUE_ID_FORMAT}__picked_up_at"
 
     _attr_name = "Picked Up At"
@@ -174,7 +194,9 @@ class PikIntercomLastCallSessionPickedUpAtSensor(_BasePikIntercomLastCallSession
         return self._internal_object.pickedup_at
 
 
-class PikIntercomLastCallSessionFinishedAtSensor(_BasePikIntercomLastCallSessionTimestampSensor):
+class PikIntercomLastCallSessionFinishedAtSensor(
+    _BasePikIntercomLastCallSessionTimestampSensor
+):
     UNIQUE_ID_FORMAT = f"{_BasePikIntercomLastCallSessionTimestampSensor.UNIQUE_ID_FORMAT}__finished_at"
 
     _attr_name = "Finished At"

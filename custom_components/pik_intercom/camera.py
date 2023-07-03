@@ -121,7 +121,9 @@ def _async_add_new_property_intercoms(
 
     new_entities = []
     for intercom_id, intercom in coordinator.api_object.devices.items():
-        if intercom_id not in entities and (intercom.snapshot_url or intercom.stream_url):
+        if intercom_id not in entities and (
+            intercom.snapshot_url or intercom.stream_url
+        ):
             entity = PikIntercomPropertyDeviceCamera(
                 coordinator,
                 device=intercom,
@@ -169,7 +171,9 @@ _T = TypeVar("_T")
 _TT = TypeVar("_TT")
 
 
-class _BaseIntercomCamera(BasePikIntercomEntity[_T, _TT], Camera, ABC, Generic[_T, _TT]):
+class _BaseIntercomCamera(
+    BasePikIntercomEntity[_T, _TT], Camera, ABC, Generic[_T, _TT]
+):
     """Base class for Pik Intercom cameras."""
 
     _attr_icon = "mdi:doorbell-video"
@@ -190,7 +194,11 @@ class _BaseIntercomCamera(BasePikIntercomEntity[_T, _TT], Camera, ABC, Generic[_
         super()._update_attr()
 
         device = self._internal_object
-        if not (extra_state_attributes := getattr(self, "_attr_extra_state_attributes", None)):
+        if not (
+            extra_state_attributes := getattr(
+                self, "_attr_extra_state_attributes", None
+            )
+        ):
             self._attr_extra_state_attributes = extra_state_attributes = {}
 
         if isinstance(device, PikObjectWithVideo):
@@ -225,7 +233,9 @@ class _BaseIntercomCamera(BasePikIntercomEntity[_T, _TT], Camera, ABC, Generic[_
     def disable_motion_detection(self) -> None:
         raise HomeAssistantError("Motion detection not supported")
 
-    async def async_camera_image(self, width: Optional[int] = None, height: Optional[int] = None) -> Optional[bytes]:
+    async def async_camera_image(
+        self, width: Optional[int] = None, height: Optional[int] = None
+    ) -> Optional[bytes]:
         """Return a still image response from the camera."""
         internal_object = self._internal_object
         log_prefix = f"[{self.entity_id}] "
@@ -257,7 +267,9 @@ class _BaseIntercomCamera(BasePikIntercomEntity[_T, _TT], Camera, ABC, Generic[_
         _LOGGER.warning(log_prefix + "Отсутствует источник снимков")
         return None
 
-    def camera_image(self, width: Optional[int] = None, height: Optional[int] = None) -> Optional[bytes]:
+    def camera_image(
+        self, width: Optional[int] = None, height: Optional[int] = None
+    ) -> Optional[bytes]:
         return asyncio.run_coroutine_threadsafe(
             self.async_camera_image(width, height),
             self.hass.loop,
@@ -269,7 +281,9 @@ class _BaseIntercomCamera(BasePikIntercomEntity[_T, _TT], Camera, ABC, Generic[_
             return self._internal_object.stream_url
 
 
-class PikIntercomPropertyDeviceCamera(_BaseIntercomCamera, BasePikIntercomPropertyDeviceEntity):
+class PikIntercomPropertyDeviceCamera(
+    _BaseIntercomCamera, BasePikIntercomPropertyDeviceEntity
+):
     """Entity representation of a property device camera."""
 
     UNIQUE_ID_FORMAT = BasePikIntercomPropertyDeviceEntity.UNIQUE_ID_FORMAT + "__camera"
@@ -296,7 +310,9 @@ class PikIntercomIotDiscreteCamera(BasePikIntercomIotCameraEntity, _BaseIntercom
     _attr_translation_key = "camera"
 
 
-class PikIntercomIotIntercomCamera(BasePikIntercomIotIntercomEntity, _BaseIntercomCamera):
+class PikIntercomIotIntercomCamera(
+    BasePikIntercomIotIntercomEntity, _BaseIntercomCamera
+):
     """Entity representation of an IoT intercom camera."""
 
     UNIQUE_ID_FORMAT = "iot_intercom__{}__camera"
@@ -304,7 +320,9 @@ class PikIntercomIotIntercomCamera(BasePikIntercomIotIntercomEntity, _BaseInterc
 
     def _update_attr(self) -> None:
         super()._update_attr()
-        self._attr_extra_state_attributes["relay_ids"] = [relay.id for relay in self._internal_object.relays]
+        self._attr_extra_state_attributes["relay_ids"] = [
+            relay.id for relay in self._internal_object.relays
+        ]
 
 
 class PikIntercomIotRelayCamera(BasePikIntercomIotRelayEntity, _BaseIntercomCamera):

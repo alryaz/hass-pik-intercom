@@ -13,7 +13,13 @@ from typing import Final, List
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, SOURCE_IMPORT
-from homeassistant.const import CONF_DEVICE_ID, CONF_PASSWORD, CONF_USERNAME, CONF_VERIFY_SSL, Platform
+from homeassistant.const import (
+    CONF_DEVICE_ID,
+    CONF_PASSWORD,
+    CONF_USERNAME,
+    CONF_VERIFY_SSL,
+    Platform,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady, ConfigEntryAuthFailed
 from homeassistant.helpers import config_validation as cv
@@ -64,7 +70,9 @@ PLATFORMS: Final = (
 
 _BASE_CONFIG_ENTRY_SCHEMA: Final = vol.Schema(
     {
-        vol.Required(CONF_USERNAME): vol.All(cv.string, vol.Any(phone_validator, vol.Email)),
+        vol.Required(CONF_USERNAME): vol.All(
+            cv.string, vol.Any(phone_validator, vol.Email)
+        ),
         vol.Required(CONF_PASSWORD): cv.string,
         # Additional parameters
         vol.Optional(CONF_DEVICE_ID, default=None): vol.Any(
@@ -110,7 +118,10 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         return True
 
     # Import existing configurations
-    configured_users = {entry.data.get(CONF_USERNAME) for entry in hass.config_entries.async_entries(DOMAIN)}
+    configured_users = {
+        entry.data.get(CONF_USERNAME)
+        for entry in hass.config_entries.async_entries(DOMAIN)
+    }
     for user_cfg in domain_config:
         if user_cfg.get(CONF_USERNAME) in configured_users:
             continue
@@ -154,8 +165,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Load property device coordinators
     if (update_interval := entry.options[CONF_INTERCOMS_UPDATE_INTERVAL]) > 0:
-        update_interval = timedelta(seconds=max(MIN_INTERCOMS_UPDATE_INTERVAL, update_interval))
-        _LOGGER.debug(log_prefix + f"Setting up property intercoms updates with interval: {update_interval}")
+        update_interval = timedelta(
+            seconds=max(MIN_INTERCOMS_UPDATE_INTERVAL, update_interval)
+        )
+        _LOGGER.debug(
+            log_prefix
+            + f"Setting up property intercoms updates with interval: {update_interval}"
+        )
     else:
         update_interval = None
         _LOGGER.debug(log_prefix + f"Not setting up property intercoms updates")
@@ -171,8 +187,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Load IoT device coordinators
     if (update_interval := entry.options[CONF_IOT_UPDATE_INTERVAL]) > 0:
-        update_interval = timedelta(seconds=max(MIN_IOT_UPDATE_INTERVAL, update_interval))
-        _LOGGER.debug(log_prefix + f"Setting up IoT devices updates with interval: {update_interval}")
+        update_interval = timedelta(
+            seconds=max(MIN_IOT_UPDATE_INTERVAL, update_interval)
+        )
+        _LOGGER.debug(
+            log_prefix
+            + f"Setting up IoT devices updates with interval: {update_interval}"
+        )
     else:
         update_interval = None
         _LOGGER.debug(log_prefix + f"Not setting up IoT devices updates")
@@ -197,12 +218,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 update_interval,
             )
         )
-        _LOGGER.debug(log_prefix + f"Setting up last call session updates with interval: {update_interval}")
+        _LOGGER.debug(
+            log_prefix
+            + f"Setting up last call session updates with interval: {update_interval}"
+        )
     else:
         update_interval = None
         _LOGGER.debug(log_prefix + f"Not setting up last call session updates")
     entry_update_coordinators.append(
-        PikIntercomLastCallSessionUpdateCoordinator(hass, api_object=api_object, update_interval=update_interval)
+        PikIntercomLastCallSessionUpdateCoordinator(
+            hass, api_object=api_object, update_interval=update_interval
+        )
     )
 
     # Perform initial update tasks
@@ -232,9 +258,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await api_object.async_authenticate()
 
     if (update_interval := entry.options[CONF_AUTH_UPDATE_INTERVAL]) > 0:
-        update_interval = timedelta(seconds=max(MIN_AUTH_UPDATE_INTERVAL, update_interval))
-        _LOGGER.debug(log_prefix + f"Setting up reauthentication with interval: {update_interval}")
-        hass.data.setdefault(DATA_REAUTHENTICATORS, {})[config_entry_id] = async_track_time_interval(
+        update_interval = timedelta(
+            seconds=max(MIN_AUTH_UPDATE_INTERVAL, update_interval)
+        )
+        _LOGGER.debug(
+            log_prefix + f"Setting up reauthentication with interval: {update_interval}"
+        )
+        hass.data.setdefault(DATA_REAUTHENTICATORS, {})[
+            config_entry_id
+        ] = async_track_time_interval(
             hass,
             async_reauthenticate,
             update_interval,
@@ -268,8 +300,13 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Add default options
     options.setdefault(CONF_DEVICE_ID, entry.entry_id[-16:])
-    options.setdefault(CONF_INTERCOMS_UPDATE_INTERVAL, DEFAULT_INTERCOMS_UPDATE_INTERVAL)
-    options.setdefault(CONF_LAST_CALL_SESSION_UPDATE_INTERVAL, DEFAULT_LAST_CALL_SESSION_UPDATE_INTERVAL)
+    options.setdefault(
+        CONF_INTERCOMS_UPDATE_INTERVAL, DEFAULT_INTERCOMS_UPDATE_INTERVAL
+    )
+    options.setdefault(
+        CONF_LAST_CALL_SESSION_UPDATE_INTERVAL,
+        DEFAULT_LAST_CALL_SESSION_UPDATE_INTERVAL,
+    )
     options.setdefault(CONF_AUTH_UPDATE_INTERVAL, DEFAULT_AUTH_UPDATE_INTERVAL)
     options.setdefault(CONF_IOT_UPDATE_INTERVAL, DEFAULT_METERS_UPDATE_INTERVAL)
     options.setdefault(CONF_VERIFY_SSL, True)
@@ -286,7 +323,9 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         # Clear authentication updater
-        if auth_updater := hass.data.get(DATA_REAUTHENTICATORS, {}).pop(entry.entry_id, None):
+        if auth_updater := hass.data.get(DATA_REAUTHENTICATORS, {}).pop(
+            entry.entry_id, None
+        ):
             auth_updater()
 
     return unload_ok
