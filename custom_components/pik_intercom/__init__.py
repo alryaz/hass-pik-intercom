@@ -27,7 +27,10 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.typing import ConfigType
 
-from custom_components.pik_intercom.api import PikIntercomAPI, PikIntercomException
+from custom_components.pik_intercom.api import (
+    PikIntercomAPI,
+    PikIntercomException,
+)
 from custom_components.pik_intercom.const import (
     CONF_AUTH_UPDATE_INTERVAL,
     CONF_INTERCOMS_UPDATE_INTERVAL,
@@ -44,6 +47,7 @@ from custom_components.pik_intercom.const import (
     DEFAULT_METERS_UPDATE_INTERVAL,
     MIN_LAST_CALL_SESSION_UPDATE_INTERVAL,
     MIN_IOT_UPDATE_INTERVAL,
+    DATA_ENTITIES,
 )
 from custom_components.pik_intercom.entity import (
     BasePikIntercomUpdateCoordinator,
@@ -174,7 +178,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
     else:
         update_interval = None
-        _LOGGER.debug(log_prefix + f"Not setting up property intercoms updates")
+        _LOGGER.debug(
+            log_prefix + f"Not setting up property intercoms updates"
+        )
     entry_update_coordinators: List["BasePikIntercomUpdateCoordinator"] = [
         PikIntercomPropertyIntercomsUpdateCoordinator(
             hass,
@@ -211,7 +217,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
 
     # Load call session update coordinator
-    if (update_interval := entry.options[CONF_LAST_CALL_SESSION_UPDATE_INTERVAL]) > 0:
+    if (
+        update_interval := entry.options[
+            CONF_LAST_CALL_SESSION_UPDATE_INTERVAL
+        ]
+    ) > 0:
         update_interval = timedelta(
             seconds=max(
                 MIN_LAST_CALL_SESSION_UPDATE_INTERVAL,
@@ -234,7 +244,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Perform initial update tasks
     done, pending = await asyncio.wait(
         [
-            hass.loop.create_task(coordinator.async_config_entry_first_refresh())
+            hass.loop.create_task(
+                coordinator.async_config_entry_first_refresh()
+            )
             for coordinator in entry_update_coordinators
         ],
         return_when=asyncio.FIRST_EXCEPTION,
@@ -248,8 +260,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if exc := next(iter(done)).exception():
         raise ConfigEntryNotReady(f"One of the updates failed: {exc}") from exc
 
+    # Helper: cleanup unused properties
+    required_properties = {
+        device.property_id for device in api_object.devices.values()
+    }
+    shutdown_tasks = []
+    for coordinator in tuple(entry_update_coordinators):
+        if (
+            isinstance(
+                coordinator, PikIntercomPropertyIntercomsUpdateCoordinator
+            )
+            and coordinator.property_id not in required_properties
+        ):
+            entry_update_coordinators.remove(coordinator)
+            hass.loop.create_task(coordinator.async_shutdown())
+            _LOGGER.debug(
+                log_prefix + f"Property {coordinator.property_id} "
+                f"update coordinator is not needed, shutting down"
+            )
+    if shutdown_tasks:
+        await asyncio.wait(shutdown_tasks, return_when=asyncio.ALL_COMPLETED)
+
     # Save update coordinators
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = entry_update_coordinators
+    hass.data.setdefault(DOMAIN, {})[
+        entry.entry_id
+    ] = entry_update_coordinators
+    hass.data.setdefault(DATA_ENTITIES, {})[entry.entry_id] = {}
 
     # Create automatic authentication updater
     async def async_reauthenticate(*_):
@@ -262,7 +298,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             seconds=max(MIN_AUTH_UPDATE_INTERVAL, update_interval)
         )
         _LOGGER.debug(
-            log_prefix + f"Setting up reauthentication with interval: {update_interval}"
+            log_prefix
+            + f"Setting up reauthentication with interval: {update_interval}"
         )
         hass.data.setdefault(DATA_REAUTHENTICATORS, {})[
             config_entry_id
@@ -289,7 +326,9 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    from custom_components.pik_intercom.config_flow import PikIntercomConfigFlow
+    from custom_components.pik_intercom.config_flow import (
+        PikIntercomConfigFlow,
+    )
 
     _LOGGER.info(
         f"[{entry.entry_id}] Upgrading configuration version: {entry.version} => {PikIntercomConfigFlow.VERSION}"
@@ -308,7 +347,9 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         DEFAULT_LAST_CALL_SESSION_UPDATE_INTERVAL,
     )
     options.setdefault(CONF_AUTH_UPDATE_INTERVAL, DEFAULT_AUTH_UPDATE_INTERVAL)
-    options.setdefault(CONF_IOT_UPDATE_INTERVAL, DEFAULT_METERS_UPDATE_INTERVAL)
+    options.setdefault(
+        CONF_IOT_UPDATE_INTERVAL, DEFAULT_METERS_UPDATE_INTERVAL
+    )
     options.setdefault(CONF_VERIFY_SSL, True)
 
     # Remove obsolete data
@@ -321,11 +362,16 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+    if unload_ok := await hass.config_entries.async_unload_platforms(
+        entry, PLATFORMS
+    ):
         # Clear authentication updater
         if auth_updater := hass.data.get(DATA_REAUTHENTICATORS, {}).pop(
             entry.entry_id, None
         ):
             auth_updater()
+
+    hass.data.get(DOMAIN, {}).pop(entry.entry_id)
+    hass.data.get(DATA_ENTITIES, {}).pop(entry.entry_id)
 
     return unload_ok

@@ -70,8 +70,25 @@
       }
     },
     "sensor": {
-      "meter": {
-        "name": "Meter",
+      "meter_month": {
+        "name": "Monthly Usage",
+        "state_attributes": {
+          "id": {
+            "name": "Object identifier"
+          },
+          "kind": {
+            "name": "Device type"
+          },
+          "pipe_identifier": {
+            "name": "Pipe identifier"
+          },
+          "location": {
+            "name": "Geographical location"
+          }
+        }
+      },
+      "meter_total": {
+        "name": "Current Indication",
         "state_attributes": {
           "id": {
             "name": "Object identifier"

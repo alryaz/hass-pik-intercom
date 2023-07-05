@@ -4,6 +4,5 @@
     "zip_release": false,
     "render_readme": true,
     "country": "RU",
-    "homeassistant": "2023.6.0",
-    "iot_class": "Cloud Polling"
+    "homeassistant": "2023.6.0"
 }

@@ -1,6 +1,7 @@
 from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorDeviceClass,
+    BinarySensorEntityDescription,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -22,35 +23,53 @@ async def async_setup_entry(
 
     for coordinator in hass.data[DOMAIN][entry.entry_id]:
         # Add update listeners to meter entity
-        if isinstance(coordinator, PikIntercomLastCallSessionUpdateCoordinator):
+        if isinstance(
+            coordinator, PikIntercomLastCallSessionUpdateCoordinator
+        ):
             async_add_entities(
-                [PikIntercomLastCallSessionSensor(coordinator, device=coordinator.data)]
+                [
+                    PikIntercomLastCallSessionActiveSensor(
+                        coordinator, device=coordinator.data
+                    )
+                ]
             )
 
     return True
 
 
-class PikIntercomLastCallSessionSensor(
+class PikIntercomLastCallSessionActiveSensor(
     BasePikIntercomLastCallSessionEntity, BinarySensorEntity
 ):
-    # _attr_icon = "mdi:phone"
-    _attr_device_class = BinarySensorDeviceClass.SOUND
-    _attr_name = "Active"
-    _attr_translation_key = "last_call_session_active"
-    _attr_icon = "mdi:phone-hangup"
+    entity_description = BinarySensorEntityDescription(
+        key="active",
+        name="Active",
+        icon="mdi:phone-hangup",
+        device_class=BinarySensorDeviceClass.SOUND,
+        translation_key="last_call_session_active",
+        has_entity_name=True,
+    )
 
     def _update_attr(self) -> None:
         super()._update_attr()
+
+        # Previously set, and reset
+        self._attr_available = True
 
         if not (call_session := self._internal_object):
             self._attr_is_on = False
             return
 
-        self._attr_is_on = call_session.notified_at and not call_session.finished_at
+        self._attr_is_on = (
+            call_session.notified_at and not call_session.finished_at
+        )
         self._attr_icon = (
-            ("mdi:phone-in-talk" if call_session.pickedup_at else "mdi:phone-ring")
+            (
+                "mdi:phone-in-talk"
+                if call_session.pickedup_at
+                else "mdi:phone-ring"
+            )
             if self._attr_is_on
-            else "mdi:phone-hangup"
+            else self.entity_description.icon
         )
         self._attr_extra_state_attributes.update(
             {

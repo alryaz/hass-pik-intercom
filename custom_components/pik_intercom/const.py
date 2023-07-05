@@ -1,6 +1,7 @@
 from typing import Final
 
 DOMAIN: Final = "pik_intercom"
+DATA_ENTITIES: Final = f"{DOMAIN}_entities"
 
 MANUFACTURER: Final = "PIK Group"
 
@@ -8,7 +9,9 @@ DATA_REAUTHENTICATORS: Final = DOMAIN + "_reauthenticators"
 
 CONF_INTERCOMS_UPDATE_INTERVAL: Final = "intercoms_update_interval"
 CONF_AUTH_UPDATE_INTERVAL: Final = "auth_update_interval"
-CONF_LAST_CALL_SESSION_UPDATE_INTERVAL: Final = "last_call_session_update_interval"
+CONF_LAST_CALL_SESSION_UPDATE_INTERVAL: Final = (
+    "last_call_session_update_interval"
+)
 CONF_IOT_UPDATE_INTERVAL: Final = "iot_update_interval"
 
 DEFAULT_INTERCOMS_UPDATE_INTERVAL: Final = 10 * 60  # 10 minutes

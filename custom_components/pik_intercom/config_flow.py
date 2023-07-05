@@ -28,7 +28,10 @@ from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from custom_components.pik_intercom.api import PikIntercomAPI, PikIntercomException
+from custom_components.pik_intercom.api import (
+    PikIntercomAPI,
+    PikIntercomException,
+)
 from custom_components.pik_intercom.const import (
     CONF_AUTH_UPDATE_INTERVAL,
     CONF_INTERCOMS_UPDATE_INTERVAL,
@@ -63,12 +66,18 @@ _INTERVALS_WITH_DEFAULTS = {
         DEFAULT_INTERCOMS_UPDATE_INTERVAL,
         MIN_INTERCOMS_UPDATE_INTERVAL,
     ),
-    CONF_AUTH_UPDATE_INTERVAL: (DEFAULT_AUTH_UPDATE_INTERVAL, MIN_AUTH_UPDATE_INTERVAL),
+    CONF_AUTH_UPDATE_INTERVAL: (
+        DEFAULT_AUTH_UPDATE_INTERVAL,
+        MIN_AUTH_UPDATE_INTERVAL,
+    ),
     CONF_LAST_CALL_SESSION_UPDATE_INTERVAL: (
         DEFAULT_LAST_CALL_SESSION_UPDATE_INTERVAL,
         MIN_LAST_CALL_SESSION_UPDATE_INTERVAL,
     ),
-    CONF_IOT_UPDATE_INTERVAL: (DEFAULT_METERS_UPDATE_INTERVAL, MIN_IOT_UPDATE_INTERVAL),
+    CONF_IOT_UPDATE_INTERVAL: (
+        DEFAULT_METERS_UPDATE_INTERVAL,
+        MIN_IOT_UPDATE_INTERVAL,
+    ),
 }
 
 
@@ -77,7 +86,9 @@ class PikIntercomConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION: Final = 6
 
-    async def async_submit_entry(self, user_input: Mapping[str, Any]) -> FlowResult:
+    async def async_submit_entry(
+        self, user_input: Mapping[str, Any]
+    ) -> FlowResult:
         username = user_input[CONF_USERNAME]
 
         # Check if entry with given username already exists
@@ -98,7 +109,10 @@ class PikIntercomConfigFlow(ConfigFlow, domain=DOMAIN):
             options={
                 CONF_DEVICE_ID: user_input[CONF_DEVICE_ID],
                 CONF_VERIFY_SSL: user_input[CONF_VERIFY_SSL],
-                **{key: value for key, (value, _) in _INTERVALS_WITH_DEFAULTS.items()},
+                **{
+                    key: value
+                    for key, (value, _) in _INTERVALS_WITH_DEFAULTS.items()
+                },
             },
         )
 
@@ -171,7 +185,9 @@ class PikIntercomConfigFlow(ConfigFlow, domain=DOMAIN):
             else self.async_abort(reason="unknown_error")
         )
 
-    async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> FlowResult:
+    async def async_step_reauth(
+        self, entry_data: Mapping[str, Any]
+    ) -> FlowResult:
         # @TODO
         raise NotImplementedError
 
@@ -209,7 +225,9 @@ class PikIntercomOptionsFlow(OptionsFlow):
             for key in _INTERVALS_WITH_DEFAULTS:
                 normalized_configuration[key] = user_input[key].total_seconds()
 
-            normalized_configuration[CONF_VERIFY_SSL] = user_input[CONF_VERIFY_SSL]
+            normalized_configuration[CONF_VERIFY_SSL] = user_input[
+                CONF_VERIFY_SSL
+            ]
 
             device_id = user_input[CONF_DEVICE_ID]
             if not re.fullmatch(r"[a-zA-Z0-9]+", device_id):
@@ -218,7 +236,10 @@ class PikIntercomOptionsFlow(OptionsFlow):
                 errors[CONF_DEVICE_ID] = "device_id_too_short"
             normalized_configuration[CONF_DEVICE_ID] = device_id
 
-            for interval_key, (_, min_interval) in _INTERVALS_WITH_DEFAULTS.items():
+            for interval_key, (
+                _,
+                min_interval,
+            ) in _INTERVALS_WITH_DEFAULTS.items():
                 if (
                     normalized_configuration[interval_key] < min_interval
                     and normalized_configuration[interval_key] != 0
@@ -230,7 +251,9 @@ class PikIntercomOptionsFlow(OptionsFlow):
 
             if not errors:
                 _LOGGER.debug(f"Saving options: {normalized_configuration}")
-                return self.async_create_entry(title="", data=normalized_configuration)
+                return self.async_create_entry(
+                    title="", data=normalized_configuration
+                )
         else:
             normalized_configuration = dict(options)
 

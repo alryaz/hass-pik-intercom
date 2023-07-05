@@ -18,7 +18,11 @@ from typing import (
 )
 
 from homeassistant.components import ffmpeg
-from homeassistant.components.camera import Camera, CameraEntityFeature
+from homeassistant.components.camera import (
+    Camera,
+    CameraEntityFeature,
+    CameraEntityDescription,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
@@ -52,14 +56,13 @@ def _async_add_new_iot_cameras(
     coordinator: PikIntercomIotCamerasUpdateCoordinator,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    try:
-        entities = getattr(coordinator, "camera_entities")
-    except AttributeError:
-        setattr(coordinator, "camera_entities", entities := {})
+    entities = coordinator.get_entities_dict(PikIntercomIotDiscreteCamera)
 
     new_entities = []
     for camera_id, camera in coordinator.api_object.iot_cameras.items():
-        if camera_id not in entities and (camera.snapshot_url or camera.stream_url):
+        if camera_id not in entities and (
+            camera.snapshot_url or camera.stream_url
+        ):
             entity = PikIntercomIotDiscreteCamera(
                 coordinator,
                 device=camera,
@@ -76,15 +79,10 @@ def _async_add_new_iot_intercoms(
     coordinator: PikIntercomIotIntercomsUpdateCoordinator,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    try:
-        entities_intercoms = getattr(coordinator, "intercom_camera_entities")
-    except AttributeError:
-        setattr(coordinator, "intercom_camera_entities", entities_intercoms := {})
-
-    try:
-        entities_relays = getattr(coordinator, "relay_camera_entities")
-    except AttributeError:
-        setattr(coordinator, "relay_camera_entities", entities_relays := {})
+    entities_intercoms = coordinator.get_entities_dict(
+        PikIntercomIotIntercomCamera
+    )
+    entities_relays = coordinator.get_entities_dict(PikIntercomIotRelayCamera)
 
     new_entities = []
     for intercom_id, intercom in coordinator.api_object.iot_intercoms.items():
@@ -114,10 +112,7 @@ def _async_add_new_property_intercoms(
     coordinator: PikIntercomPropertyIntercomsUpdateCoordinator,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    try:
-        entities = getattr(coordinator, "camera_entities")
-    except AttributeError:
-        setattr(coordinator, "camera_entities", entities := {})
+    entities = coordinator.get_entities_dict(PikIntercomPropertyDeviceCamera)
 
     new_entities = []
     for intercom_id, intercom in coordinator.api_object.devices.items():
@@ -143,7 +138,9 @@ async def async_setup_entry(
     """Add a Pik Intercom cameras for a config entry."""
     for coordinator in hass.data[DOMAIN][entry.entry_id]:
         # Add update listeners to meter entity
-        if isinstance(coordinator, PikIntercomPropertyIntercomsUpdateCoordinator):
+        if isinstance(
+            coordinator, PikIntercomPropertyIntercomsUpdateCoordinator
+        ):
             run_func = _async_add_new_property_intercoms
         elif isinstance(coordinator, PikIntercomIotIntercomsUpdateCoordinator):
             run_func = _async_add_new_iot_intercoms
@@ -176,11 +173,16 @@ class _BaseIntercomCamera(
 ):
     """Base class for Pik Intercom cameras."""
 
-    _attr_icon = "mdi:doorbell-video"
     _attr_supported_features = CameraEntityFeature.STREAM
     _attr_motion_detection_enabled = False
-    _attr_name = "Intercom"
-    _attr_translation_key = "intercom"
+
+    entity_description = CameraEntityDescription(
+        key="camera",
+        icon="mdi:doorbell-video",
+        name="Intercom",
+        translation_key="intercom",
+        has_entity_name=True,
+    )
 
     def __init__(self, *args, **kwargs) -> None:
         Camera.__init__(self)
@@ -202,7 +204,9 @@ class _BaseIntercomCamera(
             self._attr_extra_state_attributes = extra_state_attributes = {}
 
         if isinstance(device, PikObjectWithVideo):
-            extra_state_attributes["stream_url"] = stream_source = device.stream_url
+            extra_state_attributes[
+                "stream_url"
+            ] = stream_source = device.stream_url
             if stream := self.stream:
                 if stream_source != stream.source:
                     _LOGGER.debug(
@@ -245,10 +249,14 @@ class _BaseIntercomCamera(
             if photo_url := internal_object.snapshot_url:
                 try:
                     # Send the request to snap a picture and return raw JPEG data
-                    if snapshot_image := await internal_object.async_get_snapshot():
+                    if (
+                        snapshot_image := await internal_object.async_get_snapshot()
+                    ):
                         return snapshot_image
                 except PikIntercomException as error:
-                    _LOGGER.error(log_prefix + f"Ошибка получения снимка: {error}")
+                    _LOGGER.error(
+                        log_prefix + f"Ошибка получения снимка: {error}"
+                    )
 
         if isinstance(internal_object, PikObjectWithVideo):
             # Attempt to retrieve snapshot image using RTSP stream
@@ -286,11 +294,6 @@ class PikIntercomPropertyDeviceCamera(
 ):
     """Entity representation of a property device camera."""
 
-    UNIQUE_ID_FORMAT = BasePikIntercomPropertyDeviceEntity.UNIQUE_ID_FORMAT + "__camera"
-
-    _attr_name = "Intercom"
-    _attr_translation_key = "intercom"
-
     def _update_attr(self) -> None:
         super()._update_attr()
         device = self._internal_object
@@ -301,13 +304,18 @@ class PikIntercomPropertyDeviceCamera(
                     state_attributes[f"stream_url_{key}"] = value
 
 
-class PikIntercomIotDiscreteCamera(BasePikIntercomIotCameraEntity, _BaseIntercomCamera):
+class PikIntercomIotDiscreteCamera(
+    BasePikIntercomIotCameraEntity, _BaseIntercomCamera
+):
     """Entity representation of a singleton camera."""
 
-    UNIQUE_ID_FORMAT = "iot_camera__{}__camera"
-
-    _attr_name = "Camera"
-    _attr_translation_key = "camera"
+    entity_description = CameraEntityDescription(
+        key="camera",
+        icon="mdi:cctv",
+        name="Camera",
+        translation_key="camera",
+        has_entity_name=True,
+    )
 
 
 class PikIntercomIotIntercomCamera(
@@ -315,7 +323,6 @@ class PikIntercomIotIntercomCamera(
 ):
     """Entity representation of an IoT intercom camera."""
 
-    UNIQUE_ID_FORMAT = "iot_intercom__{}__camera"
     _attr_entity_registry_enabled_default = False
 
     def _update_attr(self) -> None:
@@ -325,10 +332,10 @@ class PikIntercomIotIntercomCamera(
         ]
 
 
-class PikIntercomIotRelayCamera(BasePikIntercomIotRelayEntity, _BaseIntercomCamera):
+class PikIntercomIotRelayCamera(
+    BasePikIntercomIotRelayEntity, _BaseIntercomCamera
+):
     """Entity representation of an IoT relay camera."""
-
-    UNIQUE_ID_FORMAT = "iot_relay__{}__camera"
 
     def _update_attr(self) -> None:
         super()._update_attr()

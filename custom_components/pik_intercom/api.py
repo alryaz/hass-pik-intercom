@@ -65,6 +65,14 @@ class PikIntercomException(Exception):
     """Base class for exceptions"""
 
 
+class MalformedDataError(PikIntercomException, ValueError):
+    """Received data is malformed"""
+
+
+class ServerResponseError(PikIntercomException):
+    """Error embedded into server response"""
+
+
 class PikIntercomAPI:
     BASE_ICM_URL: ClassVar[str] = "https://intercom.rubetek.com"
     BASE_IOT_URL: ClassVar[str] = "https://iot.rubetek.com"
@@ -220,17 +228,9 @@ class PikIntercomAPI:
                 method,
                 url,
                 headers=headers,
+                raise_for_status=True,
                 **kwargs,
             ) as request:
-                if request.status not in (200, 201):
-                    _LOGGER.error(
-                        log_prefix + f"Could not perform {title}, "
-                        f"status {request.status}, body: {await request.text()}"
-                    )
-                    raise PikIntercomException(
-                        f"Could not perform {title} (status code {request.status})"
-                    )
-
                 resp_data = await request.json()
 
         except json.JSONDecodeError:
@@ -238,35 +238,28 @@ class PikIntercomAPI:
                 log_prefix + f"Could not perform {title}, "
                 f"invalid JSON body: {await request.text()}"
             )
-            raise PikIntercomException(
+            raise MalformedDataError(
                 f"Could not perform {title} (body decoding failed)"
             )
 
-        except asyncio.TimeoutError:
-            _LOGGER.error(
-                log_prefix + f"Could not perform {title}, "
-                f"waited for {self.session.timeout.total} seconds"
-            )
-            raise PikIntercomException(f"Could not perform {title} (timed out)")
-
-        except aiohttp.ClientError as e:
-            _LOGGER.error(log_prefix + f"Could not perform {title}, client error: {e}")
-            raise PikIntercomException(f"Could not perform {title} (client error)")
-
         else:
             if isinstance(resp_data, dict) and resp_data.get("error"):
-                code, description = resp_data.get("code", "unknown"), resp_data.get(
-                    "description", "none provided"
-                )
+                code, description = resp_data.get(
+                    "code", "unknown"
+                ), resp_data.get("description", "none provided")
 
                 _LOGGER.error(
                     log_prefix + f"Could not perform {title}, "
                     f"code: {code}, "
                     f"description: {description}"
                 )
-                raise PikIntercomException(f"Could not perform {title} ({code})")
+                raise ServerResponseError(
+                    f"Could not perform {title} ({code})"
+                )
 
-            _LOGGER.debug(log_prefix + f"Performed {title}, response: {resp_data}")
+            _LOGGER.debug(
+                log_prefix + f"Performed {title}, response: {resp_data}"
+            )
 
             return resp_data, request.headers, request_counter
 
@@ -408,7 +401,9 @@ class PikIntercomAPI:
                 authenticated=True,
                 params={"customer_device[uid]": device_id},
             )
-        except PikIntercomException:
+        except aiohttp.ClientResponseError as exc:
+            if exc.status != 404:
+                raise
             resp_data, headers, request_counter = await self._async_post(
                 "/api/customers/devices",
                 title="customer device initialization",
@@ -427,7 +422,9 @@ class PikIntercomAPI:
                 f"could not create customer device for id {self.device_id}"
             )
 
-    async def async_set_customer_device_push_token(self, push_token: str) -> None:
+    async def async_set_customer_device_push_token(
+        self, push_token: str
+    ) -> None:
         customer_device_id = None
         for device_id, device in self._customer_devices.items():
             if device.uid == self.device_id:
@@ -481,11 +478,15 @@ class PikIntercomAPI:
                     property_.section = property_data["section"]
                     property_.building_id = property_data["building_id"]
                     property_.district_id = property_data["district_id"]
-                    property_.account_number = property_data.get("account_number")
+                    property_.account_number = property_data.get(
+                        "account_number"
+                    )
 
         # @TODO: add other properties
 
-        _LOGGER.debug(f"[{request_counter}] Properties fetching successful {resp_data}")
+        _LOGGER.debug(
+            f"[{request_counter}] Properties fetching successful {resp_data}"
+        )
 
     async def async_update_property_intercoms(
         self, property_id: int, clean_obsolete: bool = False
@@ -523,10 +524,11 @@ class PikIntercomAPI:
                 try:
                     intercom = intercoms[intercom_id]
                 except KeyError:
-                    intercom = PikPropertyDevice(api=self, id=intercom_id)
+                    intercom = PikPropertyDevice(
+                        api=self, id=intercom_id, property_id=property_id
+                    )
                     intercoms[intercom_id] = intercom
 
-                intercom.property_id = data.get("property_id") or None
                 intercom.scheme_id = data.get("scheme_id") or None
                 intercom.building_id = data.get("building_id") or None
                 intercom.kind = data.get("kind") or None
@@ -535,13 +537,17 @@ class PikIntercomAPI:
                 intercom.name = data.get("name") or None
                 intercom.human_name = data.get("human_name") or None
                 intercom.renamed_name = data.get("renamed_name") or None
-                intercom.checkpoint_relay_index = data.get("checkpoint_relay_index")
+                intercom.checkpoint_relay_index = data.get(
+                    "checkpoint_relay_index"
+                )
                 intercom.relays = data.get("relays") or None
                 intercom.entrance = data.get("entrance")
                 intercom.can_address = data.get("can_address")
                 intercom.face_detection = data.get("face_detection")
                 intercom.video = (
-                    MultiDict([(v["quality"], v["source"]) for v in video_data])
+                    MultiDict(
+                        [(v["quality"], v["source"]) for v in video_data]
+                    )
                     if (video_data := data.get("video"))
                     else None
                 )
@@ -551,14 +557,18 @@ class PikIntercomAPI:
                     intercom.ex_user = sip_account_data.get("ex_user")
                     intercom.proxy = sip_account_data.get("proxy")
 
-            _LOGGER.debug(f"[{request_counter}] Property intercoms fetching successful")
+            _LOGGER.debug(
+                f"[{request_counter}] Property intercoms fetching successful"
+            )
 
         if clean_obsolete:
             # Clean up obsolete data
             for key in intercoms.keys() - found_intercoms:
                 del intercoms[key]
 
-    async def async_update_iot_intercoms(self, clean_obsolete: bool = False) -> None:
+    async def async_update_iot_intercoms(
+        self, clean_obsolete: bool = False
+    ) -> None:
         sub_url = f"/api/alfred/v1/personal/intercoms"
         page_number = 0
 
@@ -613,9 +623,13 @@ class PikIntercomAPI:
 
                 geo_unit_short_name = None
                 if geo_unit_data := intercom_data.get("geo_unit"):
-                    geo_unit_short_name = geo_unit_data.get("short_name") or None
+                    geo_unit_short_name = (
+                        geo_unit_data.get("short_name") or None
+                    )
                     intercom.geo_unit_id = geo_unit_data.get("id") or None
-                    intercom.geo_unit_full_name = geo_unit_data.get("full_name") or None
+                    intercom.geo_unit_full_name = (
+                        geo_unit_data.get("full_name") or None
+                    )
                     intercom.geo_unit_short_name = geo_unit_short_name
 
                 # Set / update relay data
@@ -654,13 +668,19 @@ class PikIntercomAPI:
                         relay.custom_name = (
                             relay_settings_data.get("custom_name") or None
                         )
-                        relay.is_favorite = bool(relay_settings_data.get("is_favorite"))
-                        relay.is_hidden = bool(relay_settings_data.get("is_hidden"))
+                        relay.is_favorite = bool(
+                            relay_settings_data.get("is_favorite")
+                        )
+                        relay.is_hidden = bool(
+                            relay_settings_data.get("is_hidden")
+                        )
 
                     # Propagated from related intercom
                     relay.geo_unit_short_name = geo_unit_short_name
 
-            _LOGGER.debug(f"[{request_counter}] Property intercoms fetching successful")
+            _LOGGER.debug(
+                f"[{request_counter}] Property intercoms fetching successful"
+            )
 
         if clean_obsolete:
             # Clean up obsolete data
@@ -669,7 +689,9 @@ class PikIntercomAPI:
             for key in relays.keys() - found_relays:
                 del relays[key]
 
-    async def async_update_iot_cameras(self, clean_obsolete: bool = False) -> None:
+    async def async_update_iot_cameras(
+        self, clean_obsolete: bool = False
+    ) -> None:
         sub_url = f"/api/alfred/v1/personal/cameras"
         page_number = 0
 
@@ -713,19 +735,25 @@ class PikIntercomAPI:
                 # Set additional data
                 camera.name = camera_data["name"]
                 camera.rtsp_url = camera_data.get("rtsp_url") or None
-                camera.live_snapshot_url = camera_data.get("live_snapshot_url") or None
+                camera.live_snapshot_url = (
+                    camera_data.get("live_snapshot_url") or None
+                )
                 camera.geo_unit_short_name = (
                     camera_data.get("geo_unit_short_name") or None
                 )
 
-            _LOGGER.debug(f"[{request_counter}] Property intercoms fetching successful")
+            _LOGGER.debug(
+                f"[{request_counter}] Property intercoms fetching successful"
+            )
 
         if clean_obsolete:
             # Clean up obsolete data
             for key in cameras.keys() - found_cameras:
                 del cameras[key]
 
-    async def async_update_iot_meters(self, clean_obsolete: bool = False) -> None:
+    async def async_update_iot_meters(
+        self, clean_obsolete: bool = False
+    ) -> None:
         sub_url = f"/api/alfred/v1/personal/meters"
         page_number = 0
 
@@ -784,14 +812,18 @@ class PikIntercomAPI:
                     meter_data.get("geo_unit_short_name") or None
                 )
 
-            _LOGGER.debug(f"[{request_counter}] Property intercoms fetching successful")
+            _LOGGER.debug(
+                f"[{request_counter}] Property intercoms fetching successful"
+            )
 
         if clean_obsolete:
             # Clean up obsolete data
             for key in meters.keys() - found_meters:
                 del meters[key]
 
-    async def async_unlock_property_intercom(self, intercom_id: int, mode: str) -> None:
+    async def async_unlock_property_intercom(
+        self, intercom_id: int, mode: str
+    ) -> None:
         """
         Send command to property device to unlock.
         :param intercom_id: Property device identifier
@@ -824,15 +856,24 @@ class PikIntercomAPI:
 
         # @TODO: rule out correct response
 
-        _LOGGER.debug(f"[{request_counter}] Intercom unlocking successful (assumed)")
-
-    async def async_get_current_call_session(self) -> Optional["PikActiveCallSession"]:
-        resp_data, headers, request_counter = await self._async_get(
-            "/api/alfred/v1/personal/call_sessions/current",
-            title="current call session",
-            base_url=self.BASE_IOT_URL,
-            authenticated=True,
+        _LOGGER.debug(
+            f"[{request_counter}] Intercom unlocking successful (assumed)"
         )
+
+    async def async_get_current_call_session(
+        self,
+    ) -> Optional["PikActiveCallSession"]:
+        try:
+            resp_data, headers, request_counter = await self._async_get(
+                "/api/alfred/v1/personal/call_sessions/current",
+                title="current call session",
+                base_url=self.BASE_IOT_URL,
+                authenticated=True,
+            )
+        except aiohttp.ClientResponseError as exc:
+            if exc.status == 404:
+                return None
+            raise
 
         notified_at = (
             datetime.fromisoformat(resp_data["notified_at"])
@@ -909,7 +950,9 @@ class PikIntercomAPI:
         except StopIteration:
             return None
 
-    async def async_update_call_sessions(self, max_pages: Optional[int] = 10) -> None:
+    async def async_update_call_sessions(
+        self, max_pages: Optional[int] = 10
+    ) -> None:
         sub_url = "/api/alfred/v1/personal/call_sessions"
         call_sessions = self._call_sessions
         page_number = 0
@@ -942,7 +985,9 @@ class PikIntercomAPI:
             for session_data in call_sessions_list:
                 call_session_id = session_data["id"]
 
-                notified_at = datetime.fromisoformat(session_data["notified_at"])
+                notified_at = datetime.fromisoformat(
+                    session_data["notified_at"]
+                )
 
                 if (
                     requires_further_updates
@@ -981,18 +1026,26 @@ class PikIntercomAPI:
                     call_session.api = self
                     call_session.id = session_data["id"]
                     call_session.property_id = session_data["geo_unit_id"]
-                    call_session.property_name = session_data["geo_unit_short_name"]
+                    call_session.property_name = session_data[
+                        "geo_unit_short_name"
+                    ]
                     call_session.intercom_id = session_data["intercom_id"]
                     call_session.intercom_name = session_data["intercom_name"]
                     call_session.notified_at = notified_at
                     call_session.finished_at = finished_at
                     call_session.pickedup_at = pickedup_at
-                    call_session.photo_url = session_data.get("snapshot_url") or None
+                    call_session.photo_url = (
+                        session_data.get("snapshot_url") or None
+                    )
 
-            _LOGGER.debug(f"[{request_counter}] Call sessions fetching successful")
+            _LOGGER.debug(
+                f"[{request_counter}] Call sessions fetching successful"
+            )
 
         if not requires_further_updates:
-            _LOGGER.debug(f"[{self._request_counter}] Stopped due to list truncation")
+            _LOGGER.debug(
+                f"[{self._request_counter}] Stopped due to list truncation"
+            )
 
 
 @dataclass(slots=True)
@@ -1026,7 +1079,9 @@ class PikObjectWithSnapshot(_BaseObject, ABC):
 
         title = "camera snapshot retrieval"
         try:
-            async with api.session.get(snapshot_url, raise_for_status=True) as request:
+            async with api.session.get(
+                snapshot_url, raise_for_status=True
+            ) as request:
                 return await request.read()
 
         except asyncio.TimeoutError:
@@ -1034,11 +1089,17 @@ class PikObjectWithSnapshot(_BaseObject, ABC):
                 log_prefix + f"Could not perform {title}, "
                 f"waited for {api.session.timeout.total} seconds"
             )
-            raise PikIntercomException(f"Could not perform {title} (timed out)")
+            raise PikIntercomException(
+                f"Could not perform {title} (timed out)"
+            )
 
         except aiohttp.ClientError as e:
-            _LOGGER.error(log_prefix + f"Could not perform {title}, client error: {e}")
-            raise PikIntercomException(f"Could not perform {title} (client error)")
+            _LOGGER.error(
+                log_prefix + f"Could not perform {title}, client error: {e}"
+            )
+            raise PikIntercomException(
+                f"Could not perform {title} (client error)"
+            )
 
 
 class PikObjectWithVideo(_BaseObject, ABC):
@@ -1152,7 +1213,9 @@ class PikActiveCallSession(_BasePikCallSession, PikObjectWithUnlocker):
             if (exc := task.exception()) and not isinstance(
                 exc, asyncio.CancelledError
             ):
-                _LOGGER.error(f"Error occurred on unlocking: {exc}", exc_info=exc)
+                _LOGGER.error(
+                    f"Error occurred on unlocking: {exc}", exc_info=exc
+                )
                 errors.append(exc)
 
         if errors:
@@ -1163,7 +1226,10 @@ class PikActiveCallSession(_BasePikCallSession, PikObjectWithUnlocker):
 
 @dataclass(slots=True)
 class PikPropertyDevice(
-    PikObjectWithSnapshot, PikObjectWithVideo, PikObjectWithUnlocker, PikObjectWithSIP
+    PikObjectWithSnapshot,
+    PikObjectWithVideo,
+    PikObjectWithUnlocker,
+    PikObjectWithSIP,
 ):
     scheme_id: Optional[int] = None
     building_id: Optional[int] = None
@@ -1231,13 +1297,17 @@ class PikIotMeter(_BaseObject):
     @property
     def current_value_numeric(self) -> Optional[float]:
         return (
-            PikIotMeter._convert_value(value) if (value := self.current_value) else None
+            PikIotMeter._convert_value(value)
+            if (value := self.current_value)
+            else None
         )
 
     @property
     def month_value_numeric(self) -> Optional[float]:
         return (
-            PikIotMeter._convert_value(value) if (value := self.month_value) else None
+            PikIotMeter._convert_value(value)
+            if (value := self.month_value)
+            else None
         )
 
 

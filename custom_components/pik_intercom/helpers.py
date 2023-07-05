@@ -5,13 +5,14 @@ import voluptuous as vol
 
 _LOGGER = logging.getLogger(__name__)
 
-
 _RE_USERNAME_MASK = re.compile(r"^(\W*)(.).*(.)$")
 
 
 def mask_username(username: str):
     parts = username.split("@")
-    return "@".join(map(lambda x: _RE_USERNAME_MASK.sub(r"\1\2***\3", x), parts))
+    return "@".join(
+        map(lambda x: _RE_USERNAME_MASK.sub(r"\1\2***\3", x), parts)
+    )
 
 
 def phone_validator(phone_number: str) -> str:
@@ -42,7 +43,9 @@ def patch_haffmpeg():
     try:
         from haffmpeg.core import HAFFmpeg
     except (ImportError, FileNotFoundError):
-        _LOGGER.warning("haffmpeg could not be patched because it is not yet installed")
+        _LOGGER.warning(
+            "haffmpeg could not be patched because it is not yet installed"
+        )
         return
 
     if hasattr(HAFFmpeg, "_orig_generate_ffmpeg_cmd"):

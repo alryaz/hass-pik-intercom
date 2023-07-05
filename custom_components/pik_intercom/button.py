@@ -10,9 +10,12 @@ import asyncio
 import logging
 from abc import ABC
 from functools import partial
-from typing import Dict, Type, Mapping
+from typing import Type, Mapping
 
-from homeassistant.components.button import ButtonEntity
+from homeassistant.components.button import (
+    ButtonEntity,
+    ButtonEntityDescription,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -39,24 +42,23 @@ def async_process_intercoms_generic(
     coordinator: PikIntercomIotIntercomsUpdateCoordinator,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
+    entities = coordinator.get_entities_dict(entity_cls)
     entry_id = coordinator.config_entry.entry_id
-    try:
-        entities: Dict[int, "_BaseUnlockerButton"] = getattr(
-            coordinator, "unlocker_button_entities"
-        )
-    except AttributeError:
-        setattr(coordinator, "unlocker_button_entities", entities := {})
 
     new_entities = []
     for item_id, item in objects_dict.items():
         if item_id not in entities:
-            _LOGGER.debug(f"[{entry_id}] Adding unlocker for {item.id}")
+            _LOGGER.debug(
+                f"[{entry_id}] Adding {entity_cls.__name__} unlocker for {item.id}"
+            )
             current_sensor = entity_cls(coordinator, device=item)
             entities[item_id] = current_sensor
             new_entities.append(current_sensor)
 
     if new_entities:
-        _LOGGER.debug(f"[{entry_id}] Adding {len(new_entities)} new button entities")
+        _LOGGER.debug(
+            f"[{entry_id}] Adding {len(new_entities)} new button entities"
+        )
         async_add_entities(new_entities)
 
 
@@ -72,11 +74,15 @@ async def async_setup_entry(
         if isinstance(coordinator, PikIntercomIotIntercomsUpdateCoordinator):
             entity_cls = PikIntercomIotRelayUnlockerButton
             objects_dict = coordinator.api_object.iot_relays
-        elif isinstance(coordinator, PikIntercomPropertyIntercomsUpdateCoordinator):
+        elif isinstance(
+            coordinator, PikIntercomPropertyIntercomsUpdateCoordinator
+        ):
             entity_cls = PikIntercomPropertyPropertyDeviceUnlockerButton
             objects_dict = coordinator.api_object.devices
         else:
-            if isinstance(coordinator, PikIntercomLastCallSessionUpdateCoordinator):
+            if isinstance(
+                coordinator, PikIntercomLastCallSessionUpdateCoordinator
+            ):
                 async_add_entities(
                     [
                         PikIntercomCallSessionUnlockerButton(
@@ -108,10 +114,15 @@ async def async_setup_entry(
 class _BaseUnlockerButton(BasePikIntercomEntity, ButtonEntity, ABC):
     """Base class for unlocking Intercom relays"""
 
-    _attr_icon = "mdi:door-closed-lock"
     _internal_object: PikObjectWithUnlocker
-    _attr_name = "Unlocker"
-    _attr_translation_key = "unlocker"
+
+    entity_description = ButtonEntityDescription(
+        key="unlocker",
+        name="Unlocker",
+        icon="mdi:door-closed-lock",
+        translation_key="unlocker",
+        has_entity_name=True,
+    )
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -132,27 +143,17 @@ class PikIntercomPropertyPropertyDeviceUnlockerButton(
 ):
     """Property Intercom Unlocker Adapter"""
 
-    UNIQUE_ID_FORMAT = (
-        f"{BasePikIntercomPropertyDeviceEntity.UNIQUE_ID_FORMAT}__unlocker"
-    )
-
 
 class PikIntercomIotRelayUnlockerButton(
     BasePikIntercomIotRelayEntity, _BaseUnlockerButton
 ):
     """IoT Relay Unlocker Adapter"""
 
-    UNIQUE_ID_FORMAT = f"{BasePikIntercomIotRelayEntity.UNIQUE_ID_FORMAT}__unlocker"
-
 
 class PikIntercomCallSessionUnlockerButton(
     BasePikIntercomLastCallSessionEntity, _BaseUnlockerButton
 ):
     """Last call session unlock delegator."""
-
-    UNIQUE_ID_FORMAT = (
-        f"{BasePikIntercomLastCallSessionEntity.UNIQUE_ID_FORMAT}__unlocker"
-    )
 
     def _update_attr(self) -> None:
         super()._update_attr()
