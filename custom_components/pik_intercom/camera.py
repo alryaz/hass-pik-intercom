@@ -12,8 +12,6 @@ from abc import ABC
 from typing import (
     Optional,
     Union,
-    TypeVar,
-    Generic,
 )
 
 from homeassistant.components import ffmpeg
@@ -128,13 +126,7 @@ async def async_setup_entry(
     return True
 
 
-_T = TypeVar("_T")
-_TT = TypeVar("_TT")
-
-
-class _BaseIntercomCamera(
-    BasePikIntercomEntity[_T, _TT], Camera, ABC, Generic[_T, _TT]
-):
+class _BaseIntercomCamera(BasePikIntercomEntity, Camera, ABC):
     """Base class for Pik Intercom cameras."""
 
     _attr_supported_features = CameraEntityFeature.STREAM
@@ -289,9 +281,9 @@ class PikIotIntercomCamera(
 
     def _update_attr(self) -> None:
         super()._update_attr()
-        self._attr_extra_state_attributes["relay_ids"] = [
-            relay.id for relay in self._internal_object.relays
-        ]
+        self._attr_extra_state_attributes[
+            "relay_ids"
+        ] = self._internal_object.relay_ids
 
 
 class PikIotRelayCamera(BasePikIntercomIotRelayEntity, _BaseIntercomCamera):
@@ -299,6 +291,7 @@ class PikIotRelayCamera(BasePikIntercomIotRelayEntity, _BaseIntercomCamera):
 
     def _update_attr(self) -> None:
         super()._update_attr()
+        intercom = self._internal_object.intercom
         self._attr_extra_state_attributes["intercom_id"] = (
-            intercom.id if (intercom := self.related_iot_intercom) else None
+            intercom.id if intercom else None
         )

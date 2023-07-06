@@ -39,6 +39,7 @@ from pik_intercom import (
     IcmCallSession,
     IotCallSession,
     IcmActiveCallSession,
+    BaseObject,
 )
 from pik_intercom import PikIntercomAPI
 
@@ -247,7 +248,7 @@ _TBasePikIntercomUpdateCoordinator = TypeVar(
     bound=BasePikUpdateCoordinator,
 )
 
-_TBaseObject = TypeVar("_TBaseObject", bound="_BaseObject")
+_TBaseObject = TypeVar("_TBaseObject", bound=BaseObject)
 
 
 class BasePikIntercomEntity(
@@ -266,7 +267,7 @@ class BasePikIntercomEntity(
         device: _TBaseObject,
         **kwargs,
     ) -> None:
-        self._internal_object: _TBaseObject = device
+        self._internal_object = device
         if entity_description is not None:
             self.entity_description = entity_description
         super().__init__(*args, **kwargs)
@@ -400,16 +401,8 @@ class BasePikIntercomIotRelayEntity(
         ).friendly_name or f"IoT Relay {d.id}"
 
     @property
-    def related_iot_intercom(self) -> Optional["IotIntercom"]:
-        current_relay = self._internal_object
-        for intercom in self.api_object.iot_intercoms.values():
-            for relay in intercom.relays or ():
-                if relay is current_relay:
-                    return intercom
-
-    @property
     def common_device_identifier(self) -> str:
-        if iot_intercom := self.related_iot_intercom:
+        if iot_intercom := self._internal_object.intercom:
             return BasePikIntercomIotIntercomEntity.UNIQUE_ID_FORMAT.format(
                 iot_intercom.id
             )
