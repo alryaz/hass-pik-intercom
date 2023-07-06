@@ -7,7 +7,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from custom_components.pik_intercom import DOMAIN
+from custom_components.pik_intercom.const import *
 from custom_components.pik_intercom.entity import (
     BasePikLastCallSessionEntity,
     PikLastCallSessionUpdateCoordinator,
@@ -38,6 +38,26 @@ async def async_setup_entry(
 class PikLastCallSessionActiveSensor(
     BasePikLastCallSessionEntity, BinarySensorEntity
 ):
+    call_session_attributes: Final = (
+        ATTR_CALL_DURATION,
+        ATTR_CALL_FROM,
+        ATTR_CALL_ID,
+        ATTR_GEO_UNIT_ID,
+        ATTR_GEO_UNIT_SHORT_NAME,
+        ATTR_HANGUP,
+        ATTR_IDENTIFIER,
+        ATTR_INTERCOM_ID,
+        ATTR_INTERCOM_NAME,
+        ATTR_MODE,
+        ATTR_PROPERTY_ID,
+        ATTR_PROPERTY_NAME,
+        ATTR_PROVIDER,
+        ATTR_PROXY,
+        ATTR_SESSION_ID,
+        ATTR_SIP_PROXY,
+        ATTR_SNAPSHOT_URL,
+        ATTR_TARGET_RELAY_IDS,
+    )
     entity_description = BinarySensorEntityDescription(
         key="active",
         name="Active",
@@ -69,12 +89,8 @@ class PikLastCallSessionActiveSensor(
             if self._attr_is_on
             else self.entity_description.icon
         )
-        self._attr_extra_state_attributes.update(
-            {
-                # "property_id": call_session.property_ids,
-                # "property_name": call_session.property_name,
-                "intercom_id": call_session.intercom_id,
-                # "intercom_name": call_session.intercom_name,
-                "snapshot_url": call_session.snapshot_url,
-            }
-        )
+
+        # populate call session data
+        attrs = self._attr_extra_state_attributes
+        for attribute in self.call_session_attributes:
+            attrs[attribute] = getattr(call_session, attribute, None)

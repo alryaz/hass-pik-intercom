@@ -25,8 +25,8 @@ from homeassistant.const import (
 )
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from custom_components.pik_intercom.const import (
     CONF_AUTH_UPDATE_INTERVAL,
@@ -45,25 +45,18 @@ from custom_components.pik_intercom.const import (
     MIN_IOT_UPDATE_INTERVAL,
     CONF_ICM_SEPARATE_UPDATES,
     DEFAULT_ICM_SEPARATE_UPDATES,
+    CONF_ADD_SUGGESTED_AREAS,
+    DEFAULT_ADD_SUGGESTED_AREAS,
+    DEFAULT_VERIFY_SSL,
 )
-from custom_components.pik_intercom.helpers import phone_validator
-from pik_intercom import PikIntercomAPI
-from pik_intercom import (
-    PikIntercomException,
+from custom_components.pik_intercom.helpers import (
+    phone_validator,
+    async_get_authenticated_api,
 )
 
 _LOGGER: Final = logging.getLogger(__name__)
 
-STEP_USER_DATA_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_USERNAME): str,
-        vol.Required(CONF_PASSWORD): str,
-        vol.Required(CONF_DEVICE_ID): str,
-        vol.Optional(CONF_VERIFY_SSL, default=True): bool,
-    }
-)
-
-_INTERVALS_WITH_DEFAULTS = {
+_INTERVALS_WITH_DEFAULTS: Final = {
     CONF_INTERCOMS_UPDATE_INTERVAL: (
         DEFAULT_INTERCOMS_UPDATE_INTERVAL,
         MIN_INTERCOMS_UPDATE_INTERVAL,
@@ -82,22 +75,68 @@ _INTERVALS_WITH_DEFAULTS = {
     ),
 }
 
+SHOW_INIT_OPTIONS = {
+    vol.Required(CONF_DEVICE_ID): cv.string,
+    vol.Optional(
+        CONF_ADD_SUGGESTED_AREAS, default=DEFAULT_ADD_SUGGESTED_AREAS
+    ): cv.boolean,
+    vol.Optional(CONF_VERIFY_SSL, default=DEFAULT_VERIFY_SSL): cv.boolean,
+}
+
+STEP_REAUTH_DATA_SCHEMA: Final = vol.Schema(
+    {
+        vol.Required(CONF_USERNAME): cv.string,
+        vol.Required(CONF_PASSWORD): cv.string,
+        vol.Optional(CONF_VERIFY_SSL, default=DEFAULT_VERIFY_SSL): cv.boolean,
+    }
+)
+
+STEP_USER_DATA_SCHEMA: Final = STEP_REAUTH_DATA_SCHEMA.extend(
+    SHOW_INIT_OPTIONS
+)
+
 
 class PikIntercomConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Inter RAO config entries."""
 
-    VERSION: Final = 7
+    VERSION: Final = 8
+
+    def __init__(self) -> None:
+        """Init the config flow."""
+        self._reauth_entry: ConfigEntry | None = None
 
     async def async_submit_entry(
         self, user_input: Mapping[str, Any]
     ) -> FlowResult:
-        username = user_input[CONF_USERNAME]
+        # Initialize API to get account identifier
+        api = await async_get_authenticated_api(self.hass, user_input)
 
-        # Check if entry with given username already exists
-        await self.async_set_unique_id(username)
-        self._abort_if_unique_id_configured()
+        unique_id = str(api.account.id)
+        if not (entry := self._reauth_entry) or entry.unique_id != unique_id:
+            # Check if entry with given username already exists
+            await self.async_set_unique_id(unique_id)
+            self._abort_if_unique_id_configured()
+
+        if entry:
+            self.hass.config_entries.async_update_entry(
+                entry,
+                title=user_input[CONF_USERNAME],
+                unique_id=unique_id,
+                data={
+                    **entry.data,
+                    CONF_USERNAME: user_input[CONF_USERNAME],
+                    CONF_PASSWORD: user_input[CONF_PASSWORD],
+                },
+                options={
+                    **entry.options,
+                    CONF_VERIFY_SSL: user_input[CONF_VERIFY_SSL],
+                },
+            )
+            await self.hass.config_entries.async_reload(entry.entry_id)
+            return self.async_abort(reason="reauth_successful")
 
         # Create configuration entry
+        username = user_input[CONF_USERNAME]
         return self.async_create_entry(
             title=(
                 username
@@ -120,65 +159,59 @@ class PikIntercomConfigFlow(ConfigFlow, domain=DOMAIN):
 
     # Initial step for user interaction
     async def async_step_user(
-        self, user_input: Optional[Dict[str, Any]] = None
+        self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Handle a flow start."""
-        if not user_input:
-            return self.async_show_form(
-                step_id="user",
-                data_schema=self.add_suggested_values_to_schema(
-                    STEP_USER_DATA_SCHEMA,
-                    suggested_values={
-                        CONF_DEVICE_ID: b2a_hex(urandom(15)).decode("ascii")
-                    },
-                ),
-            )
-
         errors = {}
         description_placeholders = {}
 
-        username = user_input[CONF_USERNAME]
+        if user_input:
+            username = None
+            source_username = user_input[CONF_USERNAME]
 
-        if "@" in username:
-            try:
-                username = vol.Email(username)
-            except vol.Invalid:
-                errors[CONF_USERNAME] = "bad_email_format"
-        else:
-            try:
-                username = phone_validator(username)
-            except vol.Invalid:
-                errors[CONF_USERNAME] = "bad_phone_format"
-
-        if not errors:
-            api = PikIntercomAPI(
-                username=username,
-                password=user_input[CONF_PASSWORD],
-                session=async_get_clientsession(self.hass),
-                device_id=user_input[CONF_DEVICE_ID],
-            )
-
-            try:
-                await api.authenticate()
-            except PikIntercomException as exc:
-                _LOGGER.error(f"Authentication error: {exc}")
-                errors["base"] = "authentication_error"
-                description_placeholders["error"] = str(exc)
+            if "@" in source_username:
+                try:
+                    username = vol.Email(source_username)
+                except vol.Invalid:
+                    errors[CONF_USERNAME] = "bad_email_format"
             else:
+                try:
+                    username = phone_validator(source_username)
+                except vol.Invalid:
+                    errors[CONF_USERNAME] = "bad_phone_format"
+
+            if not errors and username:
                 user_input[CONF_USERNAME] = username
-                return await self.async_submit_entry(user_input)
+                try:
+                    return await self.async_submit_entry(user_input)
+                except ConfigEntryAuthFailed as exc:
+                    user_input[CONF_USERNAME] = source_username
+                    errors["base"] = "authentication_error"
+                    description_placeholders["error"] = str(exc)
+
+        if entry := self._reauth_entry:
+            all_data = {**entry.data, **entry.options}
+
+            # just in case it's broken, pop
+            all_data.pop(CONF_PASSWORD, None)
+
+            schema = self.add_suggested_values_to_schema(
+                STEP_REAUTH_DATA_SCHEMA, all_data
+            )
+        else:
+            schema = self.add_suggested_values_to_schema(
+                STEP_USER_DATA_SCHEMA, user_input
+            )
 
         return self.async_show_form(
             step_id="user",
-            data_schema=self.add_suggested_values_to_schema(
-                STEP_USER_DATA_SCHEMA, suggested_values=user_input
-            ),
+            data_schema=schema,
             errors=errors,
             description_placeholders=description_placeholders,
         )
 
     async def async_step_import(
-        self, user_input: Optional[Dict[str, Any]] = None
+        self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Import configuration entries from YAML"""
         return (
@@ -188,10 +221,12 @@ class PikIntercomConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_reauth(
-        self, entry_data: Mapping[str, Any]
+        self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        # @TODO
-        raise NotImplementedError
+        self._reauth_entry = self.hass.config_entries.async_get_entry(
+            self.context["entry_id"]
+        )
+        return await self.async_step_user()
 
     @staticmethod
     @callback
@@ -205,11 +240,10 @@ STEP_INIT_DATA_SCHEMA = vol.Schema(
             vol.Required(key): cv.positive_time_period_dict
             for key in _INTERVALS_WITH_DEFAULTS
         },
-        vol.Required(CONF_DEVICE_ID): cv.string,
+        **SHOW_INIT_OPTIONS,
         vol.Optional(
             CONF_ICM_SEPARATE_UPDATES, default=DEFAULT_ICM_SEPARATE_UPDATES
         ): cv.boolean,
-        vol.Optional(CONF_VERIFY_SSL, default=True): cv.boolean,
     }
 )
 
@@ -220,7 +254,7 @@ class PikIntercomOptionsFlow(OptionsFlow):
 
     async def async_step_init(
         self, user_input: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+    ) -> FlowResult:
         options = self._config_entry.options
         errors = {}
         description_placeholders = {}
@@ -230,11 +264,14 @@ class PikIntercomOptionsFlow(OptionsFlow):
             for key in _INTERVALS_WITH_DEFAULTS:
                 normalized_configuration[key] = user_input[key].total_seconds()
 
+            normalized_configuration[CONF_ICM_SEPARATE_UPDATES] = user_input[
+                CONF_ICM_SEPARATE_UPDATES
+            ]
             normalized_configuration[CONF_VERIFY_SSL] = user_input[
                 CONF_VERIFY_SSL
             ]
-            normalized_configuration[CONF_ICM_SEPARATE_UPDATES] = user_input[
-                CONF_ICM_SEPARATE_UPDATES
+            normalized_configuration[CONF_ADD_SUGGESTED_AREAS] = user_input[
+                CONF_ADD_SUGGESTED_AREAS
             ]
 
             device_id = user_input[CONF_DEVICE_ID]

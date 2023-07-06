@@ -21,16 +21,17 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from custom_components.pik_intercom.const import DOMAIN
 from custom_components.pik_intercom.entity import (
     BasePikIcmIntercomEntity,
-    BasePikIntercomIotRelayEntity,
+    BasePikIotRelayEntity,
     PikIotIntercomsUpdateCoordinator,
     PikIcmIntercomUpdateCoordinator,
-    BasePikIntercomEntity,
+    BasePikEntity,
     BasePikLastCallSessionEntity,
     PikLastCallSessionUpdateCoordinator,
     PikIcmPropertyUpdateCoordinator,
+    async_add_entities_with_listener,
 )
 from custom_components.pik_intercom.helpers import (
-    async_add_entities_with_listener,
+    get_logger,
 )
 from pik_intercom import ObjectWithUnlocker
 
@@ -43,6 +44,8 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> bool:
     """Add a Pik Intercom IP intercom from a config entry."""
+    logger = get_logger(_LOGGER)
+
     for coordinator in hass.data[DOMAIN][entry.entry_id]:
         # Add update listeners to meter entity
         if isinstance(coordinator, PikIotIntercomsUpdateCoordinator):
@@ -71,13 +74,13 @@ async def async_setup_entry(
             async_add_entities=async_add_entities,
             containers=objects_dict,
             entity_classes=entity_cls,
-            logger=_LOGGER,
+            logger=logger,
         )
 
     return True
 
 
-class _BaseUnlockerButton(BasePikIntercomEntity, ButtonEntity, ABC):
+class _BaseUnlockerButton(BasePikEntity, ButtonEntity, ABC):
     """Base class for unlocking Intercom relays"""
 
     _internal_object: ObjectWithUnlocker
@@ -101,7 +104,8 @@ class _BaseUnlockerButton(BasePikIntercomEntity, ButtonEntity, ABC):
         ).result()
 
     async def async_press(self) -> None:
-        await self._internal_object.async_unlock()
+        self.logger.debug(f"Will unlock {self._internal_object}")
+        await self._internal_object.unlock()
 
 
 class PikIcmIntercomUnlockerButton(
@@ -111,7 +115,7 @@ class PikIcmIntercomUnlockerButton(
 
 
 class PikIntercomIotRelayUnlockerButton(
-    BasePikIntercomIotRelayEntity, _BaseUnlockerButton
+    BasePikIotRelayEntity, _BaseUnlockerButton
 ):
     """IoT Relay Unlocker Adapter"""
 
@@ -125,7 +129,6 @@ class PikCallSessionUnlockerButton(
         super()._update_attr()
         if not (call_session := self._internal_object):
             return
-        self._attr_available = not call_session.finished_at
         self._attr_extra_state_attributes["target_relay_ids"] = (
             list(call_session.target_relay_ids)
             if hasattr(call_session, "target_relay_ids")

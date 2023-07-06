@@ -20,7 +20,7 @@ from homeassistant.components.sensor.const import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfVolume, EntityCategory
+from homeassistant.const import UnitOfVolume, EntityCategory, UnitOfEnergy
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import (
     AddEntitiesCallback,
@@ -29,18 +29,20 @@ from homeassistant.helpers.restore_state import RestoreEntity
 
 from custom_components.pik_intercom.const import DOMAIN
 from custom_components.pik_intercom.entity import (
-    BasePikIntercomIotMeterEntity,
+    BasePikIotMeterEntity,
     PikIotMetersUpdateCoordinator,
     BasePikLastCallSessionEntity,
     PikLastCallSessionUpdateCoordinator,
     BasePikIcmIntercomEntity,
-    BasePikIntercomEntity,
+    BasePikEntity,
     PikIcmPropertyUpdateCoordinator,
     PikIcmIntercomUpdateCoordinator,
-)
-from custom_components.pik_intercom.helpers import (
     async_add_entities_with_listener,
 )
+from custom_components.pik_intercom.helpers import (
+    get_logger,
+)
+from pik_intercom import IotMeterKind
 
 _LOGGER: Final = logging.getLogger(__name__)
 
@@ -51,6 +53,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> bool:
     """Add a Pik Intercom sensors based on a config entry."""
+    logger = get_logger(_LOGGER)
 
     for coordinator in hass.data[DOMAIN][entry.entry_id]:
         if isinstance(coordinator, PikIotMetersUpdateCoordinator):
@@ -66,14 +69,19 @@ async def async_setup_entry(
             entity_descriptions = ICM_INTERCOM_ENTITY_DESCRIPTIONS
         else:
             if isinstance(coordinator, PikLastCallSessionUpdateCoordinator):
-                async_add_entities(
+                new_entities = [
                     PikLastCallSessionSensor(
                         coordinator,
                         device=coordinator.data,
                         entity_description=entity_description,
                     )
                     for entity_description in LAST_CALL_SESSION_TIMESTAMPS
-                )
+                ]
+                if new_entities:
+                    logger.debug(
+                        f"Adding {len(new_entities)} {PikLastCallSessionSensor.__name__} sensors"
+                    )
+                    async_add_entities(new_entities)
             continue
 
         # Create updater
@@ -83,7 +91,7 @@ async def async_setup_entry(
             containers=containers,
             entity_classes=entity_classes,
             entity_descriptions=entity_descriptions,
-            logger=_LOGGER,
+            logger=logger,
         )
 
     return True
@@ -96,27 +104,7 @@ class SourceSensorEntityDescription(SensorEntityDescription):
     unavailable_if_none: bool = False
 
 
-METER_ENTITY_DESCRIPTIONS: Final = (
-    SourceSensorEntityDescription(
-        key="total",
-        name="Current Indication",
-        icon="mdi:counter",
-        translation_key="meter_total",
-        source="current_value_numeric",
-        state_class=SensorStateClass.TOTAL,
-    ),
-    SourceSensorEntityDescription(
-        key="month",
-        name="Monthly Usage",
-        icon="mdi:water-plus",
-        translation_key="meter_month",
-        source="month_value_numeric",
-        state_class=SensorStateClass.TOTAL_INCREASING,
-    ),
-)
-
-
-class PikSensorEntity(BasePikIntercomEntity, SensorEntity, ABC):
+class PikSensorEntity(BasePikEntity, SensorEntity, ABC):
     entity_description: SourceSensorEntityDescription
 
     def _update_attr(self) -> None:
@@ -150,21 +138,52 @@ class PikIcmIntercomSensor(BasePikIcmIntercomEntity, PikSensorEntity):
     pass
 
 
-class PikIotMeterSensor(
-    BasePikIntercomIotMeterEntity, PikSensorEntity, RestoreEntity
-):
+METER_ENTITY_DESCRIPTIONS: Final = (
+    SourceSensorEntityDescription(
+        key="total",
+        name="Current Indication",
+        icon="mdi:counter",
+        translation_key="meter_total",
+        source="current_value_numeric",
+        state_class=SensorStateClass.TOTAL,
+    ),
+    SourceSensorEntityDescription(
+        key="month",
+        name="Monthly Usage",
+        icon="mdi:calendar-month",
+        translation_key="meter_month",
+        source="month_value_numeric",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+    ),
+)
+
+
+class PikIotMeterSensor(BasePikIotMeterEntity, PikSensorEntity, RestoreEntity):
     _attr_suggested_display_precision = 3
 
     def _update_attr(self) -> None:
         super()._update_attr()
-        if self._internal_object.kind in ("cold", "hot"):
+        kind = self._internal_object.kind
+        if kind in (IotMeterKind.HOT, IotMeterKind.COLD):
             self._attr_device_class = SensorDeviceClass.WATER
             self._attr_native_unit_of_measurement = UnitOfVolume.CUBIC_METERS
+            total_icon = "mdi:water-circle"
+        elif kind == IotMeterKind.ELECTRO:
+            self._attr_device_class = SensorDeviceClass.ENERGY
+            self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+            total_icon = "mdi:meter-electric"
+        elif kind == IotMeterKind.HEAT:
+            # @TODO: propose changes to core to standardize this
+            self._attr_native_unit_of_measurement = "Gcal"
+            total_icon = "mdi:heat"
         else:
-            _LOGGER.warning(
-                f"[{self}] New meter kind: '{self._internal_object.kind}. "
+            self.logger.warning(
+                f"New meter kind: '{kind}. "
                 f"Please, report this to the developer ASAP!"
             )
+            return
+        if self.entity_description.key == "total":
+            self._attr_icon = total_icon
 
 
 LAST_CALL_SESSION_TIMESTAMPS: Final = (
@@ -174,6 +193,7 @@ LAST_CALL_SESSION_TIMESTAMPS: Final = (
         source="created_at",
         translation_key="last_call_session_created_at",
         device_class=SensorDeviceClass.TIMESTAMP,
+        unavailable_if_none=False,
     ),
     SourceSensorEntityDescription(
         key="picked_up_at",
@@ -181,6 +201,7 @@ LAST_CALL_SESSION_TIMESTAMPS: Final = (
         source="pickedup_at",
         translation_key="last_call_session_picked_up_at",
         device_class=SensorDeviceClass.TIMESTAMP,
+        unavailable_if_none=False,
     ),
     SourceSensorEntityDescription(
         key="finished_at",
@@ -188,6 +209,7 @@ LAST_CALL_SESSION_TIMESTAMPS: Final = (
         source="finished_at",
         translation_key="last_call_session_finished_at",
         device_class=SensorDeviceClass.TIMESTAMP,
+        unavailable_if_none=False,
     ),
 )
 

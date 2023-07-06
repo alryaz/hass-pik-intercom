@@ -22,7 +22,6 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady, ConfigEntryAuthFailed
 from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.typing import ConfigType
 
@@ -39,6 +38,11 @@ from custom_components.pik_intercom.entity import (
 from custom_components.pik_intercom.helpers import (
     phone_validator,
     patch_haffmpeg,
+    ConfigEntryLoggerAdapter,
+    AnyLogger,
+    get_logger,
+    async_get_authenticated_api,
+    async_change_device_prefix,
 )
 from pik_intercom import PikIntercomAPI, PikIntercomException
 
@@ -62,6 +66,10 @@ _BASE_CONFIG_ENTRY_SCHEMA: Final = vol.Schema(
             vol.Equal(None),
             vol.All(cv.string, vol.Length(min=MIN_DEVICE_ID_LENGTH)),
         ),
+        vol.Optional(
+            CONF_ADD_SUGGESTED_AREAS, default=DEFAULT_ADD_SUGGESTED_AREAS
+        ): cv.boolean,
+        vol.Optional(CONF_VERIFY_SSL, default=DEFAULT_VERIFY_SSL): cv.boolean,
     }
 )
 
@@ -123,8 +131,11 @@ async def async_init_icm_coordinators(
     hass: HomeAssistant,
     entry: ConfigEntry,
     api_object: PikIntercomAPI,
+    *,
+    logger: AnyLogger = _LOGGER,
 ) -> list[BasePikUpdateCoordinator]:
-    eid = entry.entry_id[-6:]
+    logger = get_logger(logger)
+
     # Update properties
     try:
         await api_object.icm_update_properties()
@@ -132,7 +143,7 @@ async def async_init_icm_coordinators(
         raise
     except Exception as exc:
         msg = f"Невозможно получить данные владений: {exc}"
-        _LOGGER.error(f"[{eid}] {exc}", exc_info=exc)
+        logger.error(msg, exc_info=exc)
         raise ConfigEntryNotReady(msg) from exc
 
     # Return if no properties exist
@@ -146,11 +157,15 @@ async def async_init_icm_coordinators(
         raise
     except Exception as exc:
         msg = f"Невозможно получить данные о домофонах: {exc}"
-        _LOGGER.error(f"[{eid}] {exc}", exc_info=exc)
+        logger.error(msg)
         raise ConfigEntryNotReady(msg) from exc
 
     # Return if no intercoms exist
     if not (icm_intercoms := api_object.icm_intercoms):
+        logger.warning(
+            "Will not update ICM intercoms because "
+            "none fetched on initial request"
+        )
         return []
 
     # Calculate ICM refresh interval
@@ -158,12 +173,10 @@ async def async_init_icm_coordinators(
         interval = timedelta(
             seconds=max(MIN_INTERCOMS_UPDATE_INTERVAL, interval)
         )
-        _LOGGER.debug(
-            f"[{eid}] Setting up ICM updates with interval: {interval}"
-        )
+        logger.debug(f"Setting up ICM updates with interval: {interval}")
     else:
         interval = None
-        _LOGGER.debug(f"[{eid}] Not setting up ICM updates")
+        logger.debug("Not setting up ICM updates")
 
     if entry.options.get(CONF_ICM_SEPARATE_UPDATES):
         # Setup discrete updates using intercom update coordinators
@@ -171,11 +184,37 @@ async def async_init_icm_coordinators(
             PikIcmIntercomUpdateCoordinator(
                 hass,
                 api_object=api_object,
-                intercom_id=intercom_id,
+                object_id=intercom_id,
                 update_interval=interval,
             )
             for intercom_id in icm_intercoms
         ]
+
+    # Find building data (needed only for suggested areas)
+    if entry.options.get(CONF_ADD_SUGGESTED_AREAS):
+        building_ids = {
+            intercom.building_id
+            for intercom in api_object.icm_intercoms.values()
+            if intercom.building_id is not None
+        }
+
+        if building_ids:
+            tasks = [
+                hass.loop.create_task(
+                    api_object.icm_update_building(building_id)
+                )
+                for building_id in building_ids
+            ]
+            done, pending = await asyncio.wait(
+                tasks, return_when=asyncio.FIRST_EXCEPTION
+            )
+            for task in pending:
+                task.cancel()
+            if exc := next(iter(done)).exception():
+                logger.error(
+                    f"Error while fetching buildings: {exc}", exc_info=exc
+                )
+                raise ConfigEntryNotReady from exc
 
     # Rule out required properties
     valid_property_ids = list(api_object.icm_properties.keys())
@@ -193,18 +232,14 @@ async def async_init_icm_coordinators(
         #
         # This is a dead-simple method; if you know how to improve
         # it please create an issue!
-        _LOGGER.debug(
-            f"[{eid}] Will filter out redundant properties between: {valid_property_ids}"
-        )
+        logger.debug(f"Will filter properties between: {valid_property_ids}")
         while property_intercom_ids:
             property_id, intercom_ids = property_intercom_ids.pop()
             if any(
                 intercom_ids.issubset(other_ids)
                 for _, other_ids in property_intercom_ids
             ):
-                _LOGGER.debug(
-                    f"[{eid}] Will not update redundant property {property_id}"
-                )
+                logger.debug(f"Skipping redundant property: {property_id}")
                 valid_property_ids.remove(property_id)
 
     # Setup ICM property updates
@@ -212,7 +247,7 @@ async def async_init_icm_coordinators(
         PikIcmPropertyUpdateCoordinator(
             hass,
             api_object=api_object,
-            property_id=property_id,
+            object_id=property_id,
             update_interval=interval,
         )
         for property_id in valid_property_ids
@@ -223,53 +258,43 @@ async def async_init_iot_coordinators(
     hass: HomeAssistant,
     entry: ConfigEntry,
     api_object: PikIntercomAPI,
+    *,
+    logger: AnyLogger = _LOGGER,
 ) -> list[BasePikUpdateCoordinator]:
-    eid = entry.entry_id[-6:]
-    possible_tasks = {
-        PikIotCamerasUpdateCoordinator: api_object.iot_update_cameras(),
-        PikIotMetersUpdateCoordinator: api_object.iot_update_meters(),
-        PikIotIntercomsUpdateCoordinator: api_object.iot_update_intercoms(),
-    }
+    logger = get_logger(logger)
 
     if (interval := entry.options[CONF_IOT_UPDATE_INTERVAL]) > 0:
         interval = timedelta(seconds=max(MIN_IOT_UPDATE_INTERVAL, interval))
-        _LOGGER.debug(
-            f"[{eid}] Setting up IoT devices updates with interval: {interval}"
+        logger.debug(
+            f"Setting up IoT devices updates with interval: {interval}"
         )
     else:
         interval = None
-        _LOGGER.debug(f"[{eid}] Not setting up IoT devices updates")
+        logger.debug("Not setting up IoT device updates")
 
-    tasks = [
-        hass.loop.create_task(coroutine)
-        for coroutine in possible_tasks.values()
-    ]
-
-    done, pending = await asyncio.wait(
-        tasks, return_when=asyncio.FIRST_EXCEPTION
-    )
-    for task in pending:
-        task.cancel()
-
-    coordinators = []
-    for coordinator_cls, task in zip(possible_tasks, done):
-        if exc := task.exception():
-            msg = f"Невозможно получить данные об устройствах: {exc}"
-            _LOGGER.error(f"[{eid}] {exc}", exc_info=exc)
-            raise ConfigEntryNotReady(msg) from exc
-        coordinators.append(
-            coordinator_cls(
-                hass, api_object=api_object, update_interval=interval
-            )
+    return [
+        coordinator_cls(
+            hass,
+            api_object=api_object,
+            update_interval=interval,
         )
-
-    return coordinators
+        for coordinator_cls in (
+            PikIotCamerasUpdateCoordinator,
+            PikIotMetersUpdateCoordinator,
+            PikIotIntercomsUpdateCoordinator,
+        )
+    ]
 
 
 async def async_init_lcs_coordinator(
-    hass: HomeAssistant, entry: ConfigEntry, api_object: PikIntercomAPI
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    api_object: PikIntercomAPI,
+    *,
+    logger: AnyLogger = _LOGGER,
 ) -> PikLastCallSessionUpdateCoordinator | None:
-    eid = entry.entry_id[-6:]
+    logger = get_logger(logger)
+
     if (interval := entry.options[CONF_LAST_CALL_SESSION_UPDATE_INTERVAL]) > 0:
         interval = timedelta(
             seconds=max(
@@ -277,12 +302,12 @@ async def async_init_lcs_coordinator(
                 interval,
             )
         )
-        _LOGGER.debug(
-            f"[{eid}] Setting up last call session updates with interval: {interval}"
+        logger.debug(
+            f"Setting up last call session updates with interval: {interval}"
         )
     else:
         interval = None
-        _LOGGER.debug(f"[{eid}] Not setting up last call session updates")
+        logger.debug("Not setting up last call session updates")
 
     return PikLastCallSessionUpdateCoordinator(
         hass, api_object=api_object, update_interval=interval
@@ -290,28 +315,33 @@ async def async_init_lcs_coordinator(
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    eid = entry.entry_id[-6:]
+    logger = get_logger(_LOGGER)
 
-    api_object = PikIntercomAPI(
-        username=entry.data[CONF_USERNAME],
-        password=entry.data[CONF_PASSWORD],
-        session=async_get_clientsession(hass),
-        device_id=entry.options[CONF_DEVICE_ID],
-    )
+    api_object = await async_get_authenticated_api(hass, entry, logger=logger)
 
     try:
-        await api_object.authenticate()
         await api_object.update_customer_device()
     except PikIntercomException as exc:
-        msg = f"Невозможно выполнить авторизацию: {exc}"
-        _LOGGER.error(f"[{eid}] {msg}", exc_info=exc)
+        msg = f"Невозможно выполнить обновление данных клиентского устройства: {exc}"
+        logger.error(msg, exc_info=exc)
         raise ConfigEntryAuthFailed(msg) from exc
 
+    # initialize coordinator objects
     coordinators = [
-        *(await async_init_iot_coordinators(hass, entry, api_object)),
-        *(await async_init_icm_coordinators(hass, entry, api_object)),
-        await async_init_lcs_coordinator(hass, entry, api_object),
+        await async_init_lcs_coordinator(
+            hass, entry, api_object, logger=logger
+        )
     ]
+    coordinators.extend(
+        await async_init_iot_coordinators(
+            hass, entry, api_object, logger=logger
+        )
+    )
+    coordinators.extend(
+        await async_init_icm_coordinators(
+            hass, entry, api_object, logger=logger
+        )
+    )
 
     # Perform initial update tasks
     done, pending = await asyncio.wait(
@@ -338,15 +368,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Create automatic authentication updater
     async def async_reauthenticate(*_):
-        _LOGGER.debug(f"[{eid}] Performing reauthentication")
+        logger.debug("Performing reauthentication")
 
         await api_object.authenticate()
 
     if (interval := entry.options[CONF_AUTH_UPDATE_INTERVAL]) > 0:
         interval = timedelta(seconds=max(MIN_AUTH_UPDATE_INTERVAL, interval))
-        _LOGGER.debug(
-            f"[{eid}] Setting up reauthentication with interval: {interval}"
-        )
+        logger.debug(f"Setting up reauthentication with interval: {interval}")
         hass.data.setdefault(DATA_REAUTHENTICATORS, {})[
             entry.entry_id
         ] = async_track_time_interval(
@@ -355,7 +383,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             interval,
         )
     else:
-        _LOGGER.debug(f"[{eid}] Will not setup reauthentication")
+        logger.debug("Will not setup reauthentication")
 
     # Forward entry setup to sensor platform
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -372,18 +400,25 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """
+    Migrate configuration entry to new version.
+    :param hass: Home Assistant object
+    :param entry: Configuration entry
+    :return: Migration status
+    """
+    logger = get_logger(_LOGGER)
+
     from custom_components.pik_intercom.config_flow import (
         PikIntercomConfigFlow,
     )
 
-    eid = entry.entry_id[-6:]
-
-    _LOGGER.info(
-        f"[{eid}] Upgrading configuration version: {entry.version} => {PikIntercomConfigFlow.VERSION}"
+    logger.info(
+        f"Upgrading configuration version: {entry.version} => {PikIntercomConfigFlow.VERSION}"
     )
 
     data = dict(entry.data)
     options = dict(entry.options)
+    args = {"data": data, "options": options}
 
     # Add default options
     options.setdefault(CONF_DEVICE_ID, entry.entry_id[-16:])
@@ -408,57 +443,40 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             CONF_ICM_SEPARATE_UPDATES, DEFAULT_ICM_SEPARATE_UPDATES
         )
 
-        from homeassistant.helpers.entity_registry import (
-            async_get,
-            async_entries_for_config_entry,
+        async_change_device_prefix(
+            hass, entry, "property_intercom__", "icm_intercom__", logger=logger
         )
 
-        ent_reg = async_get(hass)
-        for ent in async_entries_for_config_entry(ent_reg, entry.entry_id):
-            if not ent.unique_id.startswith("property_intercom__"):
-                continue
-            new_unique_id = "icm_intercom__" + ent.unique_id[19:]
-            _LOGGER.debug(
-                f"[{eid}] Updated unique ID: {ent.unique_id} => {new_unique_id}"
-            )
-            ent_reg.async_update_entity(
-                ent.entity_id, new_unique_id=new_unique_id
-            )
-
-        from homeassistant.helpers.device_registry import (
-            async_get,
-            async_entries_for_config_entry,
+    if entry.version < 8:
+        api_object = await async_get_authenticated_api(
+            hass, entry, logger=logger
         )
 
-        dev_reg = async_get(hass)
-        for dev in async_entries_for_config_entry(dev_reg, entry.entry_id):
-            new_identifiers = set()
-            for first_part, second_part in dev.identifiers:
-                if first_part == DOMAIN and second_part.startswith(
-                    "property_intercom__"
-                ):
-                    new_second_part = "icm_intercom__" + second_part[19:]
-                    _LOGGER.debug(
-                        f"[{eid}] Updated dev ID: {second_part} => {new_second_part}"
-                    )
-                    second_part = new_second_part
-                new_identifiers.add((first_part, second_part))
-            if dev.identifiers == new_identifiers:
-                continue
-            dev_reg.async_update_device(
-                dev.id,
-                new_identifiers=new_identifiers,
-            )
+        args["unique_id"] = str(api_object.account.id)
+
+        async_change_device_prefix(
+            hass,
+            entry,
+            f"last_call_session__{entry.entry_id}",
+            f"last_call_session__{api_object.account.id}",
+            logger=logger,
+        )
 
     entry.version = PikIntercomConfigFlow.VERSION
-    hass.config_entries.async_update_entry(entry, data=data, options=options)
+    hass.config_entries.async_update_entry(entry, **args)
 
-    _LOGGER.info(f"[{eid}] Migration to version {entry.version} successful!")
+    logger.info(f"Migration to version {entry.version} successful!")
 
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """
+    Unload configuration entry
+    :param hass: Home Assistant object
+    :param entry: Configuration entry
+    :return: Unload status
+    """
     if unload_ok := await hass.config_entries.async_unload_platforms(
         entry, PLATFORMS
     ):
