@@ -9,8 +9,8 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from custom_components.pik_intercom import DOMAIN
 from custom_components.pik_intercom.entity import (
-    BasePikIntercomLastCallSessionEntity,
-    PikIntercomLastCallSessionUpdateCoordinator,
+    BasePikLastCallSessionEntity,
+    PikLastCallSessionUpdateCoordinator,
 )
 
 
@@ -23,12 +23,10 @@ async def async_setup_entry(
 
     for coordinator in hass.data[DOMAIN][entry.entry_id]:
         # Add update listeners to meter entity
-        if isinstance(
-            coordinator, PikIntercomLastCallSessionUpdateCoordinator
-        ):
+        if isinstance(coordinator, PikLastCallSessionUpdateCoordinator):
             async_add_entities(
                 [
-                    PikIntercomLastCallSessionActiveSensor(
+                    PikLastCallSessionActiveSensor(
                         coordinator, device=coordinator.data
                     )
                 ]
@@ -37,8 +35,8 @@ async def async_setup_entry(
     return True
 
 
-class PikIntercomLastCallSessionActiveSensor(
-    BasePikIntercomLastCallSessionEntity, BinarySensorEntity
+class PikLastCallSessionActiveSensor(
+    BasePikLastCallSessionEntity, BinarySensorEntity
 ):
     entity_description = BinarySensorEntityDescription(
         key="active",
@@ -73,8 +71,8 @@ class PikIntercomLastCallSessionActiveSensor(
         )
         self._attr_extra_state_attributes.update(
             {
-                "property_id": call_session.property_id,
-                "property_name": call_session.property_name,
+                # "property_id": call_session.property_ids,
+                # "property_name": call_session.property_name,
                 "intercom_id": call_session.intercom_id,
                 "intercom_name": call_session.intercom_name,
                 "snapshot_url": call_session.snapshot_url,

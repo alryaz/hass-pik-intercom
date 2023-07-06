@@ -13,14 +13,18 @@ CONF_LAST_CALL_SESSION_UPDATE_INTERVAL: Final = (
     "last_call_session_update_interval"
 )
 CONF_IOT_UPDATE_INTERVAL: Final = "iot_update_interval"
+CONF_ICM_SEPARATE_UPDATES: Final = "icm_separate_updates"
 
 DEFAULT_INTERCOMS_UPDATE_INTERVAL: Final = 10 * 60  # 10 minutes
 DEFAULT_AUTH_UPDATE_INTERVAL: Final = 24 * 60 * 60  # 1 day
 DEFAULT_LAST_CALL_SESSION_UPDATE_INTERVAL: Final = 7  # 7 seconds
 DEFAULT_METERS_UPDATE_INTERVAL: Final = 24 * 60 * 60  # 1 day
+DEFAULT_ICM_SEPARATE_UPDATES: Final = False
 
 MIN_INTERCOMS_UPDATE_INTERVAL: Final = 15  # 15 seconds
 MIN_AUTH_UPDATE_INTERVAL: Final = 2 * 60 * 60  # 2 hours
 MIN_LAST_CALL_SESSION_UPDATE_INTERVAL: Final = 3  # 2 seconds
 MIN_IOT_UPDATE_INTERVAL: Final = 15  # 15 seconds
 MIN_DEVICE_ID_LENGTH: Final = 6
+
+ATTR_TYPE: Final = "type"

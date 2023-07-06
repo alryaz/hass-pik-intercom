@@ -34,6 +34,7 @@
           "intercoms_update_interval": "Intercoms update interval",
           "last_call_session_update_interval": "Last call session update interval",
           "iot_update_interval": "IoT-devices update interval",
+          "icm_separate_updates": "Update every ICM intercom separately",
           "device_id": "Device identifier",
           "verify_ssl": "Verify SSL"
         }

@@ -28,10 +28,6 @@ from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from custom_components.pik_intercom.api import (
-    PikIntercomAPI,
-    PikIntercomException,
-)
 from custom_components.pik_intercom.const import (
     CONF_AUTH_UPDATE_INTERVAL,
     CONF_INTERCOMS_UPDATE_INTERVAL,
@@ -47,8 +43,14 @@ from custom_components.pik_intercom.const import (
     CONF_IOT_UPDATE_INTERVAL,
     DEFAULT_METERS_UPDATE_INTERVAL,
     MIN_IOT_UPDATE_INTERVAL,
+    CONF_ICM_SEPARATE_UPDATES,
+    DEFAULT_ICM_SEPARATE_UPDATES,
 )
 from custom_components.pik_intercom.helpers import phone_validator
+from pik_intercom import PikIntercomAPI
+from pik_intercom import (
+    PikIntercomException,
+)
 
 _LOGGER: Final = logging.getLogger(__name__)
 
@@ -84,7 +86,7 @@ _INTERVALS_WITH_DEFAULTS = {
 class PikIntercomConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Inter RAO config entries."""
 
-    VERSION: Final = 6
+    VERSION: Final = 7
 
     async def async_submit_entry(
         self, user_input: Mapping[str, Any]
@@ -157,7 +159,7 @@ class PikIntercomConfigFlow(ConfigFlow, domain=DOMAIN):
             )
 
             try:
-                await api.async_authenticate()
+                await api.authenticate()
             except PikIntercomException as exc:
                 _LOGGER.error(f"Authentication error: {exc}")
                 errors["base"] = "authentication_error"
@@ -204,6 +206,9 @@ STEP_INIT_DATA_SCHEMA = vol.Schema(
             for key in _INTERVALS_WITH_DEFAULTS
         },
         vol.Required(CONF_DEVICE_ID): cv.string,
+        vol.Optional(
+            CONF_ICM_SEPARATE_UPDATES, default=DEFAULT_ICM_SEPARATE_UPDATES
+        ): cv.boolean,
         vol.Optional(CONF_VERIFY_SSL, default=True): cv.boolean,
     }
 )
@@ -227,6 +232,9 @@ class PikIntercomOptionsFlow(OptionsFlow):
 
             normalized_configuration[CONF_VERIFY_SSL] = user_input[
                 CONF_VERIFY_SSL
+            ]
+            normalized_configuration[CONF_ICM_SEPARATE_UPDATES] = user_input[
+                CONF_ICM_SEPARATE_UPDATES
             ]
 
             device_id = user_input[CONF_DEVICE_ID]

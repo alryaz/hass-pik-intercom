@@ -2,64 +2,39 @@
 
 __all__ = (
     "async_setup_entry",
-    "PikIntercomPropertyPropertyDeviceUnlockerButton",
+    "PikIcmIntercomUnlockerButton",
     "PikIntercomIotRelayUnlockerButton",
 )
 
 import asyncio
 import logging
 from abc import ABC
-from functools import partial
-from typing import Type, Mapping
 
 from homeassistant.components.button import (
     ButtonEntity,
     ButtonEntityDescription,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from custom_components.pik_intercom.api import PikObjectWithUnlocker
 from custom_components.pik_intercom.const import DOMAIN
 from custom_components.pik_intercom.entity import (
-    BasePikIntercomPropertyDeviceEntity,
+    BasePikIcmIntercomEntity,
     BasePikIntercomIotRelayEntity,
-    PikIntercomIotIntercomsUpdateCoordinator,
-    PikIntercomPropertyIntercomsUpdateCoordinator,
+    PikIotIntercomsUpdateCoordinator,
+    PikIcmIntercomUpdateCoordinator,
     BasePikIntercomEntity,
-    BasePikIntercomLastCallSessionEntity,
-    PikIntercomLastCallSessionUpdateCoordinator,
+    BasePikLastCallSessionEntity,
+    PikLastCallSessionUpdateCoordinator,
+    PikIcmPropertyUpdateCoordinator,
 )
+from custom_components.pik_intercom.helpers import (
+    async_add_entities_with_listener,
+)
+from pik_intercom import ObjectWithUnlocker
 
 _LOGGER: logging.Logger = logging.getLogger(__name__)
-
-
-@callback
-def async_process_intercoms_generic(
-    entity_cls: Type["_BaseUnlockerButton"],
-    objects_dict: Mapping[int, PikObjectWithUnlocker],
-    coordinator: PikIntercomIotIntercomsUpdateCoordinator,
-    async_add_entities: AddEntitiesCallback,
-) -> None:
-    entities = coordinator.get_entities_dict(entity_cls)
-    entry_id = coordinator.config_entry.entry_id
-
-    new_entities = []
-    for item_id, item in objects_dict.items():
-        if item_id not in entities:
-            _LOGGER.debug(
-                f"[{entry_id}] Adding {entity_cls.__name__} unlocker for {item.id}"
-            )
-            current_sensor = entity_cls(coordinator, device=item)
-            entities[item_id] = current_sensor
-            new_entities.append(current_sensor)
-
-    if new_entities:
-        _LOGGER.debug(
-            f"[{entry_id}] Adding {len(new_entities)} new button entities"
-        )
-        async_add_entities(new_entities)
 
 
 async def async_setup_entry(
@@ -68,24 +43,22 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> bool:
     """Add a Pik Intercom IP intercom from a config entry."""
-
     for coordinator in hass.data[DOMAIN][entry.entry_id]:
         # Add update listeners to meter entity
-        if isinstance(coordinator, PikIntercomIotIntercomsUpdateCoordinator):
-            entity_cls = PikIntercomIotRelayUnlockerButton
+        if isinstance(coordinator, PikIotIntercomsUpdateCoordinator):
             objects_dict = coordinator.api_object.iot_relays
+            entity_cls = PikIntercomIotRelayUnlockerButton
         elif isinstance(
-            coordinator, PikIntercomPropertyIntercomsUpdateCoordinator
+            coordinator,
+            (PikIcmIntercomUpdateCoordinator, PikIcmPropertyUpdateCoordinator),
         ):
-            entity_cls = PikIntercomPropertyPropertyDeviceUnlockerButton
-            objects_dict = coordinator.api_object.devices
+            objects_dict = coordinator.api_object.icm_intercoms
+            entity_cls = PikIcmIntercomUnlockerButton
         else:
-            if isinstance(
-                coordinator, PikIntercomLastCallSessionUpdateCoordinator
-            ):
+            if isinstance(coordinator, PikLastCallSessionUpdateCoordinator):
                 async_add_entities(
                     [
-                        PikIntercomCallSessionUnlockerButton(
+                        PikCallSessionUnlockerButton(
                             coordinator, device=coordinator.data
                         )
                     ]
@@ -93,19 +66,12 @@ async def async_setup_entry(
             continue
 
         # Run first time
-        async_process_intercoms_generic(
-            entity_cls, objects_dict, coordinator, async_add_entities
-        )
-
-        # Add listener for future updates
-        coordinator.async_add_listener(
-            partial(
-                async_process_intercoms_generic,
-                entity_cls,
-                objects_dict,
-                coordinator,
-                async_add_entities,
-            )
+        async_add_entities_with_listener(
+            coordinator=coordinator,
+            async_add_entities=async_add_entities,
+            containers=objects_dict,
+            entity_classes=entity_cls,
+            logger=_LOGGER,
         )
 
     return True
@@ -114,7 +80,7 @@ async def async_setup_entry(
 class _BaseUnlockerButton(BasePikIntercomEntity, ButtonEntity, ABC):
     """Base class for unlocking Intercom relays"""
 
-    _internal_object: PikObjectWithUnlocker
+    _internal_object: ObjectWithUnlocker
 
     entity_description = ButtonEntityDescription(
         key="unlocker",
@@ -138,8 +104,8 @@ class _BaseUnlockerButton(BasePikIntercomEntity, ButtonEntity, ABC):
         await self._internal_object.async_unlock()
 
 
-class PikIntercomPropertyPropertyDeviceUnlockerButton(
-    BasePikIntercomPropertyDeviceEntity, _BaseUnlockerButton
+class PikIcmIntercomUnlockerButton(
+    BasePikIcmIntercomEntity, _BaseUnlockerButton
 ):
     """Property Intercom Unlocker Adapter"""
 
@@ -150,14 +116,18 @@ class PikIntercomIotRelayUnlockerButton(
     """IoT Relay Unlocker Adapter"""
 
 
-class PikIntercomCallSessionUnlockerButton(
-    BasePikIntercomLastCallSessionEntity, _BaseUnlockerButton
+class PikCallSessionUnlockerButton(
+    BasePikLastCallSessionEntity, _BaseUnlockerButton
 ):
     """Last call session unlock delegator."""
 
     def _update_attr(self) -> None:
         super()._update_attr()
-        if call_session := self._internal_object:
-            self._attr_extra_state_attributes["target_relay_ids"] = [
-                relay.id for relay in call_session.target_relays
-            ]
+        if not (call_session := self._internal_object):
+            return
+        self._attr_available = not call_session.finished_at
+        self._attr_extra_state_attributes["target_relay_ids"] = (
+            list(call_session.target_relay_ids)
+            if hasattr(call_session, "target_relay_ids")
+            else None
+        )
