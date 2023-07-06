@@ -74,7 +74,7 @@ class PikLastCallSessionActiveSensor(
                 # "property_id": call_session.property_ids,
                 # "property_name": call_session.property_name,
                 "intercom_id": call_session.intercom_id,
-                "intercom_name": call_session.intercom_name,
+                # "intercom_name": call_session.intercom_name,
                 "snapshot_url": call_session.snapshot_url,
             }
         )
