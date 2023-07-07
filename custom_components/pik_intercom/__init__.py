@@ -491,6 +491,20 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok := await hass.config_entries.async_unload_platforms(
         entry, PLATFORMS
     ):
+        all_entities = hass.data.get(DATA_ENTITIES, {})
+        for entity_cls in tuple(all_entities):
+            entities_dict = all_entities[entity_cls]
+            for key in tuple(entities_dict):
+                try:
+                    entity_entry_id = entities_dict[key].coordinator.config_entry.entry_id
+                except AttributeError:
+                    pass
+                else:
+                    if entity_entry_id == entry.id:
+                        del entities_dict[key]
+            if not entities_dict:
+                del all_entities[entity_cls]
+             
         # Remove coordinator
         hass.data.get(DOMAIN, {}).pop(entry.entry_id)
 
