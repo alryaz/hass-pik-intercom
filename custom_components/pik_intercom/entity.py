@@ -378,14 +378,6 @@ class BasePikEntity(
     def common_device_manufacturer(self) -> str:
         return MANUFACTURER
 
-    async def async_will_remove_from_hass(self) -> None:
-        await super().async_will_remove_from_hass()
-        entities = self.coordinator.get_entities_dict(self.__class__)
-        for item_id, entity in tuple(entities.items()):
-            if self is entity:
-                del entities[item_id]
-                break
-
 
 class BasePikIcmIntercomEntity(
     BasePikEntity[PikIcmIntercomUpdateCoordinator, IcmIntercom]
