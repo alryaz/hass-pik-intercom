@@ -110,11 +110,22 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
     # Import existing configurations
     configured_users = {
-        entry.data.get(CONF_USERNAME)
+        entry.data.get(CONF_USERNAME): entry
         for entry in hass.config_entries.async_entries(DOMAIN)
     }
     for user_cfg in domain_config:
-        if user_cfg.get(CONF_USERNAME) in configured_users:
+        if entry := configured_users.get(user_cfg[CONF_USERNAME]):
+            if entry.data.get(CONF_PASSWORD) != user_cfg[CONF_PASSWORD]:
+                _LOGGER.info(
+                    f"Migrating password for entry {entry.entry_id}"
+                )
+                hass.config_entries.async_update_entry(
+                    entry,
+                    data={
+                        **entry.data,
+                        CONF_PASSWORD: user_cfg[CONF_PASSWORD],
+                    },
+                )
             continue
         hass.async_create_task(
             hass.config_entries.flow.async_init(
