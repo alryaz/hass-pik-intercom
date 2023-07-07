@@ -16,6 +16,7 @@ from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
     OptionsFlow,
+    SOURCE_IMPORT,
 )
 from homeassistant.const import (
     CONF_DEVICE_ID,
@@ -226,6 +227,8 @@ class PikIntercomConfigFlow(ConfigFlow, domain=DOMAIN):
         self._reauth_entry = self.hass.config_entries.async_get_entry(
             self.context["entry_id"]
         )
+        if self._reauth_entry.source == SOURCE_IMPORT:
+            return self.async_abort(reason="yaml_reauth_manual")
         return await self.async_step_user()
 
     @staticmethod
