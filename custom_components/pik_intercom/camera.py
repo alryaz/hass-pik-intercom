@@ -20,9 +20,10 @@ from homeassistant.components.camera import (
     Camera,
     CameraEntityFeature,
     CameraEntityDescription,
+    StreamType,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -103,6 +104,7 @@ class _BaseIntercomCamera(BasePikEntity, Camera, ABC):
     """Base class for Pik Intercom cameras."""
 
     _attr_supported_features = CameraEntityFeature.STREAM
+    _attr_frontend_stream_type = StreamType.HLS
     _attr_motion_detection_enabled = False
 
     entity_description = CameraEntityDescription(
@@ -263,4 +265,9 @@ class PikIotRelayCamera(BasePikIotRelayEntity, _BaseIntercomCamera):
         intercom = self._internal_object.intercom
         self._attr_extra_state_attributes["intercom_id"] = (
             intercom.id if intercom else None
+        )
+        self._attr_frontend_stream_type = (
+            StreamType.WEB_RTC
+            if intercom and intercom.webrtc_supported
+            else StreamType.HLS
         )
