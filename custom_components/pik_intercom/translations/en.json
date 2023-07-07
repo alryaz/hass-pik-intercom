@@ -2,7 +2,8 @@
   "config": {
     "abort": {
       "reauth_successful": "Authentication successful!",
-      "already_configured": "This account had already been configured!"
+      "already_configured": "This account had already been configured!",
+      "yaml_reauth_manual": "Re-authentication (password update) for this entry must be performed in YAML"
     },
     "error": {
       "authentication_error": "Authentication error! This might be due to bad credentials or server connectivity issues\"",
