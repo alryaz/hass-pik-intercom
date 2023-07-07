@@ -116,9 +116,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     for user_cfg in domain_config:
         if entry := configured_users.get(user_cfg[CONF_USERNAME]):
             if entry.data.get(CONF_PASSWORD) != user_cfg[CONF_PASSWORD]:
-                _LOGGER.info(
-                    f"Migrating password for entry {entry.entry_id}"
-                )
+                _LOGGER.info(f"Migrating password for entry {entry.entry_id}")
                 hass.config_entries.async_update_entry(
                     entry,
                     data={
@@ -496,7 +494,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             entities_dict = all_entities[entity_cls]
             for key in tuple(entities_dict):
                 try:
-                    entity_entry_id = entities_dict[key].coordinator.config_entry.entry_id
+                    entity_entry_id = entities_dict[
+                        key
+                    ].coordinator.config_entry.entry_id
                 except AttributeError:
                     pass
                 else:
@@ -504,7 +504,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         del entities_dict[key]
             if not entities_dict:
                 del all_entities[entity_cls]
-             
+
         # Remove coordinator
         hass.data.get(DOMAIN, {}).pop(entry.entry_id)
 
