@@ -98,7 +98,7 @@ STEP_USER_DATA_SCHEMA: Final = STEP_REAUTH_DATA_SCHEMA.extend(
 
 
 class PikIntercomConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Inter RAO config entries."""
+    """Handle a config flow for Pik Intercom config entries."""
 
     VERSION: Final = 8
 
@@ -200,6 +200,10 @@ class PikIntercomConfigFlow(ConfigFlow, domain=DOMAIN):
                 STEP_REAUTH_DATA_SCHEMA, all_data
             )
         else:
+            if not user_input:
+                user_input = {
+                    CONF_DEVICE_ID: b2a_hex(urandom(15)).decode("ascii"),
+                }
             schema = self.add_suggested_values_to_schema(
                 STEP_USER_DATA_SCHEMA, user_input
             )
