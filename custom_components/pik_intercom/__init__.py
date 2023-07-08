@@ -500,7 +500,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 except AttributeError:
                     pass
                 else:
-                    if entity_entry_id == entry.id:
+                    if entity_entry_id == entry.entry_id:
                         del entities_dict[key]
             if not entities_dict:
                 del all_entities[entity_cls]
