@@ -20,6 +20,8 @@ _&#xab;ПИК Домофон&#xbb;_ для _Home Assistant_
 > 💬 **Техническая поддержка**  
 > [![Группа в Telegram](https://img.shields.io/endpoint?url=https%3A%2F%2Ftg.sumanjay.workers.dev%2Falryaz_ha_addons&style=for-the-badge)](https://telegram.dog/alryaz_ha_addons)
 
+> **Библиотека API «ПИК Домофон»: [alryaz/pik-intercom-python](https://github.com/alryaz/pik-intercom-python)**
+
 > **Интеграция для личного кабинета ЖКХ «ПИК Комфорт»: [alryaz/hass-pik-comfort](https://github.com/alryaz/hass-pik-comfort)**
 
 ## Скриншоты
