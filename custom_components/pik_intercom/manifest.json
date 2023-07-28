@@ -12,7 +12,7 @@
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/alryaz/hass-pik-intercom/issues",
   "requirements": [
-    "pik_intercom==0.0.4"
+    "pik_intercom==0.0.5"
   ],
-  "version": "2023.7.5"
+  "version": "2023.7.6"
 }
