@@ -83,7 +83,7 @@ async def async_setup_entry(
             entity_classes = (PikIotIntercomCamera, PikIotRelayCamera)
         elif isinstance(coordinator, PikIotCamerasUpdateCoordinator):
             containers = coordinator.api_object.iot_cameras
-            entity_classes = PikIcmIntercomCamera
+            entity_classes = PikIotIntercomCamera
 
         else:
             continue
