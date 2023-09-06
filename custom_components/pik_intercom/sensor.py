@@ -64,7 +64,7 @@ async def async_setup_entry(
             coordinator,
             (PikIcmPropertyUpdateCoordinator, PikIcmIntercomUpdateCoordinator),
         ):
-            containers = coordinator.api_object.iot_intercoms
+            containers = coordinator.api_object.icm_intercoms
             entity_classes = PikIcmIntercomSensor
             entity_descriptions = ICM_INTERCOM_ENTITY_DESCRIPTIONS
         else:
