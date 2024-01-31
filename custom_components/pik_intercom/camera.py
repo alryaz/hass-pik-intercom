@@ -183,9 +183,9 @@ class _BaseIntercomCamera(BasePikEntity, Camera, ABC):
                     if snapshot_image := await internal_object.get_snapshot():
                         return snapshot_image
                 except PikIntercomException as error:
-                    _LOGGER.error(
-                        log_prefix + f"Ошибка получения снимка: {error}"
-                    )
+                    # _LOGGER.error(
+                    #    log_prefix + f"Ошибка получения снимка: {error}"
+                    # )
 
         if isinstance(internal_object, ObjectWithVideo):
             # Attempt to retrieve snapshot image using RTSP stream
@@ -201,7 +201,7 @@ class _BaseIntercomCamera(BasePikEntity, Camera, ABC):
                 return snapshot_image
 
         # Warn about missing sources
-        _LOGGER.warning(log_prefix + "Отсутствует источник снимков")
+        # _LOGGER.warning(log_prefix + "Отсутствует источник снимков")
         return None
 
     def camera_image(
