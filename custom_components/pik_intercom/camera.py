@@ -183,7 +183,7 @@ class _BaseIntercomCamera(BasePikEntity, Camera, ABC):
                     if snapshot_image := await internal_object.get_snapshot():
                         return snapshot_image
                 except PikIntercomException as error:
-                    _LOGGER.error(
+                    _LOGGER.debug(
                         log_prefix + f"Ошибка получения снимка: {error}"
                     )
 
